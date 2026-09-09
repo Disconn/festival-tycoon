@@ -256,6 +256,21 @@ test('network construction uses sender height and rotation while preserving host
   assert.equal(host.snapshot.buildRotation, 0)
 })
 
+test('host way-area construction replaces trees without stale path indexes or stalled ticks', () => {
+  const host = fixture(0)
+  assert.ok(host.place('tree', -8, 0).ok)
+  assert.equal(host.getPathAt(-8, 0, 0), undefined)
+  enableMultiplayerCommands(host)
+  host.networkMode = 'host'
+  const result = host.manageFestival({ type: 'wayArea', from: { x: -8, z: 0 }, to: { x: -7, z: 0 }, kind: 'footDirt' })
+  assert.ok(result.ok, result.message)
+  assert.equal(host.getPathAt(-8, 0, 0)?.wayType, 'footDirt')
+  assert.equal(host.getPathAt(-7, 0, 0)?.wayType, 'footDirt')
+  const tick = host.snapshot.simTick
+  host.tick(0.1)
+  assert.ok(host.snapshot.simTick > tick)
+})
+
 test('multiplayer clients build immediately and replay pending work after rejection sync', () => {
   const authoritative = fixture(0)
   const client = new GameState(authoritative.snapshot)

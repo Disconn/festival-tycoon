@@ -1194,11 +1194,14 @@ export class GameState {
         const result = type.mode === 'foot' ? this.placePathSegment(c.x, c.z, this.getTerrainHeight(c.x, c.z)) : this.designateRoad([c])
         if (!result.ok) { reason = result.message; continue }
       }
+      const path = type.mode === 'foot' ? this.getPathAt(c.x, c.z, this.getTerrainHeight(c.x, c.z)) : undefined
+      const road = type.mode === 'road' ? this.getRoadCellAt(c.x, c.z) : undefined
+      if (!path && !road) { reason = 'Weg konnte an dieser Stelle nicht angelegt werden'; continue }
       this.state.money -= extra
       const cell = this.state.festival.infrastructure.ground[key] ??= {}
       cell[property] = kind
-      if (type.mode === 'foot') this.getPathAt(c.x, c.z, this.getTerrainHeight(c.x, c.z))!.wayType = kind
-      if (type.mode === 'road') this.getRoadCellAt(c.x, c.z)!.speedLimit = type.limit as SpeedLimit
+      if (path) path.wayType = kind
+      if (road) road.speedLimit = type.limit as SpeedLimit
       changed++
     }
     if (changed) this.invalidateRoadGraph()
@@ -3308,6 +3311,9 @@ export class GameState {
       const cell = this.state.festival.infrastructure.ground[groundKey(x, z)] ??= {}
       cell.footway = wayType
     }
+    // Replacing a tree or moving an existing path can leave the count unchanged.
+    // Invalidate before queue recalculation and any immediate path lookup.
+    this.indexedBuildingCount = -1
     const overRoad =
       Boolean(this.getRoadCellAt(x, z)) &&
       elevation >= this.getTerrainHeight(x, z) + 1
