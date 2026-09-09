@@ -80,25 +80,40 @@ app.innerHTML = `
         <span>📅 <strong id="date">Tag 1 · 08:00</strong></span>
   </div>
       <div class="game-actions">
-        <button id="open-logistics">Logistik</button>
-        <button id="open-day-plan">Tagesplan</button>
-        <button id="open-complaints">Beschwerden</button>
-        <button id="open-visitors">Besucher</button>
-        <button id="open-staff">Personal</button>
-        <div class="debug-menu">
-          <button id="toggle-debug-menu" aria-expanded="false">Debug ▾</button>
-          <div id="debug-menu-panel" class="debug-menu-panel panel">
-            <button id="debug-money" title="Debug-Geld hinzufügen">💰 +100.000 €</button>
-            <button id="debug-remove-cars" title="Besucherautos entfernen">🚗 Autos entfernen & Gäste heimschicken</button>
+        <div id="action-group-festival" class="action-group" aria-label="Festival"></div>
+        <div class="action-divider"></div>
+        <div id="action-group-views" class="action-group" aria-label="Ansichten">
+          <button id="open-logistics">🚚 Logistik</button>
+          <button id="open-day-plan">📅 Tagesplan</button>
+          <button id="open-complaints">📣 Beschwerden</button>
+          <button id="open-visitors">👥 Besucher</button>
+          <button id="open-staff">🧑‍💼 Personal</button>
+        </div>
+        <div class="action-divider"></div>
+        <div id="action-group-session" class="action-group" aria-label="Sitzung">
+          <button id="toggle-park">🔓 Park schließen</button>
+          <button id="toggle-multiplayer" aria-expanded="false">🌐 Mehrspieler</button>
+        </div>
+        <div class="action-divider"></div>
+        <div id="action-group-tools" class="action-group" aria-label="Menüs">
+          <div class="debug-menu">
+            <button id="toggle-debug-menu" aria-expanded="false">🐞 Debug ▾</button>
+            <div id="debug-menu-panel" class="debug-menu-panel panel">
+              <button id="debug-money" title="Debug-Geld hinzufügen">💰 +100.000 €</button>
+              <button id="debug-remove-cars" title="Besucherautos entfernen">🚗 Autos entfernen & Gäste heimschicken</button>
+            </div>
+          </div>
+          <div class="dropdown-menu">
+            <button id="toggle-save-menu" aria-expanded="false" aria-haspopup="true">💾 Spielstand ▾</button>
+            <div id="save-menu-panel" class="dropdown-menu-panel panel">
+              <button id="save">💾 Schnell speichern</button>
+              <button id="load">📂 Schnell laden</button>
+              <button id="save-slots" title="Lokale Spielstände verwalten">🗂️ Spielstände verwalten</button>
+              <button id="copy-save" title="Spielstand als Base64 kopieren">⧉ Als Text kopieren</button>
+              <button id="paste-save" title="Base64-Spielstand einfügen">📋 Text einfügen</button>
+            </div>
           </div>
         </div>
-        <button id="toggle-park">Park schließen</button>
-        <button id="toggle-multiplayer" aria-expanded="false">Mehrspieler</button>
-        <button id="save">Speichern</button>
-        <button id="copy-save" class="save-text-icon" title="Spielstand als Base64 kopieren" aria-label="Spielstand als Base64 kopieren">⧉</button>
-        <button id="load">Laden</button>
-        <button id="save-slots" title="Lokale Spielstände verwalten">Spielstände</button>
-        <button id="paste-save" class="save-text-icon" title="Base64-Spielstand einfügen" aria-label="Base64-Spielstand einfügen">▣</button>
       </div>
     </header>
     <aside id="scenario-panel" class="scenario-panel panel" hidden>
@@ -577,6 +592,17 @@ app.innerHTML = `
   </main>
 `
 
+// .game-actions wraps onto extra rows whenever the buttons don't fit on one
+// line, so .topbar grows taller than the fixed "top" offsets .build-menu /
+// .crowding-panel use assume. Track the topbar's real rendered height and
+// expose it as a CSS variable so those panels always start below it,
+// however many rows it currently wraps to.
+const topbarElement = requireElement<HTMLElement>('.topbar')
+new ResizeObserver(([entry]) => {
+  const bottom = entry!.target.getBoundingClientRect().bottom
+  document.documentElement.style.setProperty('--topbar-gap-top', `${Math.round(bottom + 12)}px`)
+}).observe(topbarElement)
+
 const pathTools = requireElement<HTMLDivElement>('#path-tools')
 const supplyTools = requireElement<HTMLDivElement>('#supply-tools')
 const rideTools = requireElement<HTMLDivElement>('#ride-tools')
@@ -860,8 +886,8 @@ let game = new GameState()
 const festivalUI = mountFestivalUI(() => game, showToast)
 const stageEditor = mountStageEditor(() => game, showToast)
 const stageEditorButton = document.createElement('button')
-stageEditorButton.textContent = 'Bühnenwerkstatt'; stageEditorButton.addEventListener('click',()=>stageEditor.open())
-document.querySelector('.game-actions')!.append(stageEditorButton)
+stageEditorButton.textContent = '🎭 Bühnenwerkstatt'; stageEditorButton.addEventListener('click',()=>stageEditor.open())
+document.querySelector('#action-group-festival')!.append(stageEditorButton)
 const editStageButton = document.createElement('button')
 editStageButton.textContent='Bühne gestalten';editStageButton.hidden=true
 entityOverview.append(editStageButton)
@@ -1007,7 +1033,7 @@ function bindGameState(nextGame: GameState): void {
     }[festivalPhase.phase]
     date.textContent = snapshot.festival.planning ? 'Planung · Festival noch nicht gestartet' :
       `${dayPhaseIcon} Tag ${snapshot.day} · ${festivalPhaseLabel} ${festivalPhase.phaseDay}/${festivalPhase.phaseLength} · ${formatTime(snapshot.minute)}`
-    toggleParkButton.textContent = snapshot.parkOpen ? 'Park schließen' : snapshot.festival.planning || snapshot.festival.finished ? 'Park geschlossen' : 'Park öffnen'
+    toggleParkButton.textContent = snapshot.parkOpen ? '🔓 Park schließen' : snapshot.festival.planning || snapshot.festival.finished ? '🔒 Park geschlossen' : '🔒 Park öffnen'
     toggleParkButton.disabled = Boolean(snapshot.festival.planning || snapshot.festival.finished)
     toggleParkButton.title = toggleParkButton.disabled ? 'Start über das Festivalmenü' : ''
     toggleParkButton.classList.toggle('park-closed', !snapshot.parkOpen)
@@ -3012,9 +3038,52 @@ const debugMenuToggle =
   requireElement<HTMLButtonElement>('#toggle-debug-menu')
 const debugMenuPanel =
   requireElement<HTMLDivElement>('#debug-menu-panel')
+const saveMenuToggle =
+  requireElement<HTMLButtonElement>('#toggle-save-menu')
+const saveMenuPanel =
+  requireElement<HTMLDivElement>('#save-menu-panel')
+// The button row wraps onto multiple lines depending on available width, so
+// the panel can't rely on a static CSS anchor (it would end up far from
+// whichever line the button currently sits on). Position it from the
+// button's live on-screen rect instead, clamped to stay fully in view.
+function positionDropdownPanel(button: HTMLElement, panel: HTMLElement): void {
+  const margin = 8
+  const width = Math.min(250, window.innerWidth - margin * 2)
+  const rect = button.getBoundingClientRect()
+  const left = Math.min(
+    Math.max(rect.right - width, margin),
+    window.innerWidth - width - margin,
+  )
+  panel.style.left = `${left}px`
+  panel.style.top = `${rect.bottom + margin}px`
+}
+const closeSaveMenu = (): void => {
+  saveMenuPanel.classList.remove('open')
+  saveMenuToggle.setAttribute('aria-expanded', 'false')
+}
+const closeDebugMenu = (): void => {
+  debugMenuPanel.classList.remove('open')
+  debugMenuToggle.setAttribute('aria-expanded', 'false')
+}
 debugMenuToggle.addEventListener('click', () => {
+  closeSaveMenu()
   const open = debugMenuPanel.classList.toggle('open')
   debugMenuToggle.setAttribute('aria-expanded', String(open))
+  if (open) positionDropdownPanel(debugMenuToggle, debugMenuPanel)
+})
+saveMenuToggle.addEventListener('click', () => {
+  closeDebugMenu()
+  const open = saveMenuPanel.classList.toggle('open')
+  saveMenuToggle.setAttribute('aria-expanded', String(open))
+  if (open) positionDropdownPanel(saveMenuToggle, saveMenuPanel)
+})
+saveMenuPanel.addEventListener('click', (event) => {
+  if (!(event.target as HTMLElement).closest('button')) return
+  closeSaveMenu()
+})
+window.addEventListener('resize', () => {
+  if (debugMenuPanel.classList.contains('open')) positionDropdownPanel(debugMenuToggle, debugMenuPanel)
+  if (saveMenuPanel.classList.contains('open')) positionDropdownPanel(saveMenuToggle, saveMenuPanel)
 })
 requireElement<HTMLButtonElement>('#debug-remove-cars').addEventListener(
   'click',
@@ -3111,9 +3180,9 @@ function renderMultiplayerStatus(status: MultiplayerStatus): void {
   multiplayerStatus.textContent = status.message || 'Nicht verbunden'
   multiplayerToggle.textContent = connected
     ? status.mode === 'host'
-      ? `Host ${status.code}`
-      : `Online ${status.code}`
-    : 'Mehrspieler'
+      ? `🌐 Host ${status.code}`
+      : `🌐 Online ${status.code}`
+    : '🌐 Mehrspieler'
   multiplayerConnectActions.hidden = connected
   multiplayerCodeField.hidden = connected
   multiplayerJoinActions.hidden = connected

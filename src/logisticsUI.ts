@@ -15,8 +15,8 @@ export function mountLogisticsUI(getGame: () => GameState, view: WorldView, toas
   let footType: WayType = 'footDirt', roadType: WayType = 'roadDirt'
   let active = false, mode = 'none', points: Point[] = [], lastRender = 0
   let lastDepotSettings = ''
-  const button = document.createElement('button'); button.textContent = 'Logistikansicht'; button.id = 'open-supply-planner'; button.setAttribute('aria-pressed', 'false')
-  document.querySelector('.game-actions')!.append(button)
+  const button = document.createElement('button'); button.textContent = '🗺️ Logistikansicht'; button.id = 'open-supply-planner'; button.setAttribute('aria-pressed', 'false')
+  document.querySelector('#action-group-views')!.append(button)
   const panel = document.createElement('aside'); panel.className = 'supply-planner panel'; panel.hidden = true
   panel.setAttribute('aria-label', 'Logistik und Untergrund planen')
   panel.innerHTML = `<header><div><small>WEGE · WAREN · UNTERGRUND</small><h2>Logistik planen</h2></div><button data-close aria-label="Logistikansicht schließen">×</button></header>

@@ -309,29 +309,47 @@ button {
 
 .game-actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.action-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
 }
 
-.debug-menu {
-  position: relative;
+.action-divider {
+  align-self: stretch;
+  width: 1px;
+  margin-block: 4px;
+  background: rgba(255, 255, 255, 0.14);
 }
 
-.debug-menu-panel {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
+/* top/left are set in JS from the toggle button's actual on-screen rect,
+   clamped to the viewport, because the button can end up on any wrapped row
+   of .game-actions depending on available width. position: fixed keeps the
+   math viewport-relative. */
+.debug-menu-panel,
+.dropdown-menu-panel {
+  position: fixed;
   z-index: 30;
   display: none;
   width: 250px;
+  max-width: calc(100vw - 16px);
   padding: 8px;
 }
 
-.debug-menu-panel.open {
+.debug-menu-panel.open,
+.dropdown-menu-panel.open {
   display: grid;
   gap: 6px;
 }
 
-.debug-menu-panel button {
+.debug-menu-panel button,
+.dropdown-menu-panel button {
   width: 100%;
   text-align: left;
   white-space: normal;
@@ -2110,7 +2128,9 @@ button {
 .brand small { font-size: 9px; }
 .stats { gap: 16px; justify-content: flex-end; min-width: 0; }
 .stats strong { font-variant-numeric: tabular-nums; }
-.game-actions { display: flex; flex: 1 0 100%; gap: 4px; flex-wrap: wrap; }
+.game-actions { display: flex; flex: 1 0 100%; gap: 6px; flex-wrap: wrap; }
+.action-group { gap: 4px; }
+.action-divider { display: none; }
 .game-actions button { padding: 5px 9px; font-size: 11px; }
 .panel button {
   border-top-color: #819b8c; border-left-color: #819b8c;
@@ -2155,6 +2175,16 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   .visitor-panel, .staff-panel, .day-plan-panel, .visitor-overview-panel, .complaints-panel { top: 125px; max-height: calc(100dvh - 181px); }
 }
 
+/* .topbar wraps onto extra rows (and so grows taller than any of the fixed
+   "top" offsets above assume) whenever its buttons don't fit on one line.
+   main.ts measures the topbar's real height with a ResizeObserver and
+   writes it here; this rule sits last so it wins over every top: <fixed
+   value> above regardless of viewport width. */
+.build-menu,
+.crowding-panel {
+  top: var(--topbar-gap-top, 100px);
+}
+
 /* Keep the expanded scenario form inside the viewport. */
 .scenario-panel { top: 100px; max-height: calc(100dvh - 116px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 @media (max-width: 780px) { .scenario-panel { top: 125px; max-height: calc(100dvh - 141px); } }
@@ -2175,7 +2205,6 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   pointer-events: none;
 }
 
-.save-text-icon { padding-inline: 6px; min-width: 26px; }
 .save-text-dialog { width: min(600px, 85vw); color: #dedcc6; background: #263c2e; border: 2px solid #a89b61; border-radius: 5px; }
 .save-text-dialog::backdrop { background: #0009; }
 .save-text-dialog textarea { box-sizing: border-box; width: 100%; height: 180px; resize: vertical; font: 11px monospace; }

@@ -11,8 +11,8 @@ const meter = (label: string, n: number) => `<label class="festival-meter">${lab
 export function mountFestivalUI(getGame: () => GameState, toast: (text: string, error?: boolean) => void) {
   const shell = document.querySelector<HTMLElement>('.game-shell')!
   const open = document.createElement('button')
-  open.id = 'open-festival'; open.textContent = 'Festival planen'; open.setAttribute('aria-expanded', 'false')
-  document.querySelector('.game-actions')!.prepend(open)
+  open.id = 'open-festival'; open.textContent = '🎪 Festival planen'; open.setAttribute('aria-expanded', 'false')
+  document.querySelector('#action-group-festival')!.prepend(open)
   const weather = document.createElement('div'); weather.className = 'festival-weather'; weather.setAttribute('aria-hidden', 'true'); shell.append(weather)
   const panel = document.createElement('section')
   panel.id = 'festival-management'; panel.className = 'festival-management panel'; panel.hidden = true
@@ -61,7 +61,7 @@ export function mountFestivalUI(getGame: () => GameState, toast: (text: string, 
     weather.dataset.weather = f.enabled && !f.finished ? f.weather : 'sun'
     if (f.reports.length > reportCount) { reportCount = f.reports.length; toast('Neue Festival-Tagesabrechnung verfügbar') }
     else reportCount = f.reports.length
-    open.textContent = f.enabled ? (f.finished ? 'Festival · Ergebnis' : `Festival · ${WEATHER_NAMES[f.weather]}`) : 'Festival planen'
+    open.textContent = f.enabled ? (f.finished ? '🎪 Festival · Ergebnis' : `🎪 Festival · ${WEATHER_NAMES[f.weather]}`) : '🎪 Festival planen'
     if (panel.hidden) return
     if (!force && performance.now() - lastRender < 500) return
     lastRender = performance.now()
