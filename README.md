@@ -24,10 +24,11 @@ GitHub Actions baut bei jedem Push auf `master` das Spiel und stellt es öffentl
 - **Actions-Artefakt:** Workflow-Lauf *Build* → `festival-tycoon-web`
 - **Container:** `ghcr.io/y1zz1y/festival-tycoon:latest`
 
-Lokal spielen (HTTP auf Port 8080, inkl. Mehrspieler):
+Lokal spielen (HTTP auf Port 8080, inkl. Mehrspieler). Spielstände liegen im Docker-Volume `festival-saves` und bleiben nach Image-Updates erhalten:
 
 ```bash
-docker run --rm -p 8080:8080 ghcr.io/y1zz1y/festival-tycoon:latest
+docker pull ghcr.io/y1zz1y/festival-tycoon:latest
+docker run --rm -p 8080:8080 -v festival-saves:/app/saves ghcr.io/y1zz1y/festival-tycoon:latest
 ```
 
 Oder aus dem Repo: `docker compose up --build`. Danach http://localhost:8080 öffnen.

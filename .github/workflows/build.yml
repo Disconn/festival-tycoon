@@ -108,7 +108,8 @@ jobs:
             **Docker-Image** (HTTP auf Port 8080, inkl. Mehrspieler):
 
             ```bash
-            docker run --rm -p 8080:8080 ghcr.io/${{ github.repository }}:latest
+            docker pull ghcr.io/${{ github.repository }}:latest
+            docker run --rm -p 8080:8080 -v festival-saves:/app/saves ghcr.io/${{ github.repository }}:latest
             ```
 
             Danach im Browser öffnen: http://localhost:8080

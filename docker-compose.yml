@@ -1,12 +1,16 @@
 services:
   festival:
     build: .
-    image: festival-tycoon
+    image: ghcr.io/y1zz1y/festival-tycoon:latest
     ports:
       - "8080:8080"
     environment:
       PORT: "8080"
       HOST: "0.0.0.0"
     volumes:
-      - ./saves:/app/saves
+      - festival-saves:/app/saves
     restart: unless-stopped
+
+volumes:
+  festival-saves:
+    name: festival-saves

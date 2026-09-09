@@ -19,9 +19,14 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY server ./server
-RUN mkdir -p /app/saves && chown node:node /app/saves
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN apk add --no-cache su-exec \
+  && chmod +x /usr/local/bin/docker-entrypoint.sh \
+  && mkdir -p /app/saves \
+  && chown node:node /app/saves
+VOLUME /app/saves
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD wget -qO- http://127.0.0.1:8080/ >/dev/null || exit 1
-USER node
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "--experimental-strip-types", "server/serve.ts"]
