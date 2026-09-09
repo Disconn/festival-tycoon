@@ -1639,7 +1639,8 @@ function paintPath(cell: CellPosition): void {
     game.snapshot.selectedTool === 'wasteDump' ||
     game.snapshot.selectedTool === 'stageForecourt' ||
     game.snapshot.selectedTool === 'parkingArea' ||
-    game.snapshot.selectedTool === 'powerCable'
+    game.snapshot.selectedTool === 'powerCable' ||
+    game.snapshot.selectedTool === 'bulldoze'
       ? createCampingArea(dragPathStart, dragPathEnd)
       : createConnectedPathLine(dragPathStart, dragPathEnd),
     dragPathElevation,
@@ -1670,7 +1671,8 @@ function startPathDrag(cell: CellPosition): void {
     game.snapshot.selectedTool === 'roadSpeed50' ||
     game.snapshot.selectedTool === 'terrainRaise' ||
     game.snapshot.selectedTool === 'terrainLower' ||
-    game.snapshot.selectedTool === 'terrainFlatten'
+    game.snapshot.selectedTool === 'terrainFlatten' ||
+    game.snapshot.selectedTool === 'bulldoze'
       ? 0
       : game.snapshot.buildElevation
   view.setPathDragPreview([cell], dragPathElevation)
@@ -1690,10 +1692,19 @@ function finishPathDrag(): void {
     game.snapshot.selectedTool === 'wasteDump' ||
     game.snapshot.selectedTool === 'stageForecourt' ||
     game.snapshot.selectedTool === 'parkingArea' ||
-    game.snapshot.selectedTool === 'powerCable'
+    game.snapshot.selectedTool === 'powerCable' ||
+    game.snapshot.selectedTool === 'bulldoze'
       ? createCampingArea(dragPathStart, dragPathEnd)
       : createConnectedPathLine(dragPathStart, dragPathEnd)
   let built = 0
+  if (game.snapshot.selectedTool === 'bulldoze') {
+    const result = game.bulldozeArea(cells)
+    showToast(result.message, !result.ok)
+    dragPathStart = null
+    dragPathEnd = null
+    view.setPathDragPreview([], 0)
+    return
+  }
   if (game.snapshot.selectedTool === 'camping') {
     const result = game.designateCampingArea(cells)
     showToast(result.message, !result.ok)
@@ -2366,6 +2377,7 @@ function updateContextHelp(): void {
         : game.getWasteDumpAt(hoveredCell.x, hoveredCell.z)
           ? 'Müllablage aufheben'
         : 'Leeres Feld'
+    contextHelp.textContent += ' · Klicken oder rechteckig ziehen'
   } else if (tool === 'coaster') {
     contextHelp.textContent = 'Öffne den Achterbahn-Editor, um eine Bahn zu bauen.'
   } else if (tool === 'camping') {
@@ -3821,7 +3833,15 @@ document.addEventListener('visibilitychange', () => {
   measuredSimulationMs = measuredViewMs = measuredRenderMs = 0
 })
 let previousTime = performance.now()
+// Hidden tabs stop animation frames; keep the authoritative host responsive.
+window.setInterval(() => {
+  if (!document.hidden || multiplayer.status.mode !== 'host') return
+  game.tick(0.1)
+  multiplayer.tick(0.1)
+}, 100)
 function animate(time: number): void {
+  // A transient rendering error must not permanently stop simulation/network updates.
+  requestAnimationFrame(animate)
   const deltaSeconds = Math.min((time - previousTime) / 1000, 0.1)
   previousTime = time
   const simulationStart = performance.now()
@@ -3847,7 +3867,6 @@ Sim ${(measuredSimulationMs / measuredFrames).toFixed(1)} · Szene ${(measuredVi
     measuredTicks = 0
     measurementStart = time
   }
-  requestAnimationFrame(animate)
 }
 requestAnimationFrame(animate)
 

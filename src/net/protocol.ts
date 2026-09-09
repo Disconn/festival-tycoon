@@ -18,6 +18,8 @@ export type CellRef = { x: number; z: number }
 
 export type GameCommand = GameCommandAction & {
   context?: { buildElevation: number; buildRotation: number }
+  clientCommandId?: string
+  originPlayerId?: string
 }
 
 type GameCommandAction =
@@ -41,6 +43,7 @@ type GameCommandAction =
       previousPath?: PlacedBuilding
     }
   | { type: 'bulldoze'; x: number; z: number }
+  | { type: 'bulldozeArea'; cells: CellRef[] }
   | { type: 'editTerrain'; x: number; z: number; mode: TerrainEditMode }
   | { type: 'designateRoad'; cells: RoadPosition[] }
   | { type: 'designateParking'; cells: RoadPosition[] }
@@ -192,6 +195,7 @@ export type ClientMessage =
   | { t: 'host'; name: string }
   | { t: 'join'; code: string; name: string }
   | { t: 'command'; cmd: GameCommand }
+  | { t: 'commandResult'; to: string; commandId: string; result: ActionResult }
   | { t: 'leave' }
   | { t: 'world'; rev: number; world: WorldSnapshot }
   | { t: 'sim'; sim: SimSnapshot }
@@ -213,6 +217,7 @@ export type ServerMessage =
   | { t: 'joined'; code: string; playerId: string; role: 'host' | 'client'; players: NetPlayer[] }
   | { t: 'players'; players: NetPlayer[] }
   | { t: 'command'; cmd: GameCommand; from: string }
+  | { t: 'commandResult'; commandId: string; result: ActionResult }
   | { t: 'result'; ok: boolean; message: string; extra?: ActionResult }
   | { t: 'world'; rev: number; world: WorldSnapshot }
   | { t: 'sim'; sim: SimSnapshot }

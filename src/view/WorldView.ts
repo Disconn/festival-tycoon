@@ -690,6 +690,9 @@ export class WorldView {
 
   setPathDragPreview(cells: readonly CellPosition[], elevation: number): void {
     disposeChildren(this.pathDragPreview)
+    const bulldozing = this.currentSnapshot?.selectedTool === 'bulldoze'
+    this.pathDragMaterial.color.set(bulldozing ? 0xe85a4f : 0x75e49e)
+    this.pathDragMaterial.opacity = bulldozing ? 0.7 : 0.62
     cells.forEach((cell) => {
       const tile = new Mesh(this.pathDragGeometry, this.pathDragMaterial)
       const ground = getTerrainHeight(this.currentSnapshot?.terrain, cell.x, cell.z)
@@ -2328,6 +2331,7 @@ export class WorldView {
           this.currentSnapshot?.selectedTool === 'terrainRaise' ||
           this.currentSnapshot?.selectedTool === 'terrainLower' ||
           this.currentSnapshot?.selectedTool === 'terrainFlatten' ||
+          this.currentSnapshot?.selectedTool === 'bulldoze' ||
           this.currentSnapshot?.selectedTool === 'powerCable')
       ) {
         if (!this.painting && this.pointerDownCell) {

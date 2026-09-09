@@ -19,6 +19,7 @@ import { MultiplayerSession } from '../src/net/session'
 import { enableMultiplayerCommands } from '../src/net/bind'
 import { WebSocket, WebSocketServer } from 'ws'
 import { attachMultiplayer } from '../server/rooms'
+import type { GameCommand } from '../src/net/protocol'
 import { scenePixelRatio } from '../src/view/renderResolution'
 import { testFestival } from './festival'
 
@@ -230,10 +231,13 @@ test('paused host executes commands and resumes without stranding queued command
   host.networkMode = 'host'
   host.schedulePublicCommand({ type: 'setSpeed', speed: 0 })
   host.schedulePublicCommand({ type: 'updateEntryPrice', price: 27 })
+  assert.equal(host.snapshot.speed, 0, 'pause applies without a simulation tick')
+  assert.equal(host.snapshot.entryPrice, 27, 'commands execute even while simulation is stopped')
   for (let i = 0; i < 6; i++) host.tick(0.1)
   assert.equal(host.snapshot.speed, 0)
   assert.equal(host.snapshot.entryPrice, 27)
   host.schedulePublicCommand({ type: 'setSpeed', speed: 1 })
+  assert.equal(host.snapshot.speed, 1, 'resume cannot be stranded in a future tick')
   host.tick(0.1)
   assert.equal(host.snapshot.speed, 1)
 })
@@ -250,6 +254,48 @@ test('network construction uses sender height and rotation while preserving host
   assert.equal(path.rotation, 3)
   assert.equal(host.snapshot.buildElevation, 0)
   assert.equal(host.snapshot.buildRotation, 0)
+})
+
+test('multiplayer clients build immediately and replay pending work after rejection sync', () => {
+  const authoritative = fixture(0)
+  const client = new GameState(authoritative.snapshot)
+  enableMultiplayerCommands(client)
+  client.networkMode = 'client'
+  const sent: GameCommand[] = []
+  client.commandOutbox = command => sent.push(command)
+
+  const first = client.place('path', -4, 0)
+  const second = client.place('path', -3, 0)
+  assert.ok(first.ok && second.ok)
+  assert.ok(client.snapshot.buildings.some(building => building.x === -4 && building.z === 0))
+  assert.ok(client.snapshot.buildings.some(building => building.x === -3 && building.z === 0))
+  assert.equal(sent.length, 2)
+
+  const rejectedId = sent[0]!.clientCommandId
+  assert.ok(rejectedId)
+  assert.ok(client.resolveOptimisticCommand(rejectedId))
+  client.applyNetworkWorld(packWorld(authoritative.snapshot))
+  assert.ok(!client.snapshot.buildings.some(building => building.x === -4 && building.z === 0))
+  assert.ok(client.snapshot.buildings.some(building => building.x === -3 && building.z === 0))
+})
+
+test('bulldozer removes rectangular areas with one multiplayer command', () => {
+  const game = fixture(0)
+  assert.ok(game.place('path', -5, 0).ok)
+  assert.ok(game.place('path', -4, 0).ok)
+  enableMultiplayerCommands(game)
+  game.networkMode = 'client'
+  const sent: GameCommand[] = []
+  game.commandOutbox = command => sent.push(command)
+  const result = game.bulldozeArea([
+    { x: -5, z: 0 },
+    { x: -4, z: 0 },
+    { x: -3, z: 0 },
+  ])
+  assert.ok(result.ok)
+  assert.equal(game.snapshot.buildings.filter(b => b.x >= -5 && b.x <= -4 && b.z === 0).length, 0)
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0]!.type, 'bulldozeArea')
 })
 
 if (process.env.PROFILE_CROWD) {
@@ -297,6 +343,34 @@ for (const count of [500, 2000]) {
 }
 
 // Real sockets exercise join ordering, command forwarding and baseline replacement.
+test('stalled clients request recovery without flooding and busy hosts defer full snapshots', () => {
+  const game = fixture(0)
+  const session = new MultiplayerSession(game)
+  const messages: string[] = []
+  const socket = { readyState: 1, bufferedAmount: 0, send: (message: string) => messages.push(message) }
+  Object.assign(globalThis, { WebSocket })
+  const internal = session as any
+  internal.socket = socket
+  session.status.mode = 'client'
+  internal.lastWorldAt = Date.now() - 6000
+  for (let i = 0; i < 20; i++) session.tick(0.1)
+  assert.equal(messages.length, 1)
+  assert.equal(JSON.parse(messages[0]!).t, 'resync')
+  internal.handleMessage({ t: 'sync', world: structuredClone(packWorld(game.snapshot)) })
+  assert.equal(internal.needsResync, false)
+  session.status.mode = 'host'
+  session.status.players = [{ id: 'host', name: 'Host', role: 'host' }, { id: 'client', name: 'Client', role: 'client' }]
+  socket.bufferedAmount = 1024 * 1024
+  internal.pushSync()
+  internal.pushSync()
+  assert.equal(messages.length, 1, 'full worlds must not accumulate behind a congested socket')
+  socket.bufferedAmount = 0
+  session.tick(0.2)
+  assert.equal(messages.length, 2)
+  assert.equal(JSON.parse(messages[1]!).t, 'sync')
+  assert.equal(internal.syncRequested, false)
+})
+
 const wss = new WebSocketServer({ port: 0 })
 await new Promise<void>(resolve => wss.on('listening', resolve))
 const port = (wss.address() as { port: number }).port
@@ -318,6 +392,8 @@ try {
   hs.host('Test host'); await until(() => hs.status.connected)
   cs.join(hs.status.code, 'Client'); await until(() => cs.status.connected && client.snapshot.visitors.length === 20)
   client.updateEntryPrice(31)
+  await until(() => host.snapshot.entryPrice === 31)
+  await until(() => (cs as any).pendingCommands.size === 0)
   await new Promise(resolve => setTimeout(resolve, 20))
   for (let i = 0; i < 8; i++) { host.tick(0.1); hs.tick(0.1) }
   await until(() => client.snapshot.entryPrice === 31)
@@ -327,6 +403,19 @@ try {
   await until(() => client.snapshot.festival.enabled)
   ls.join(hs.status.code, 'Late client')
   await until(() => ls.status.connected && late.snapshot.entryPrice === 31)
+  const contested = { x: -8, z: 0 }
+  assert.ok(client.place('path', contested.x, contested.z).ok)
+  assert.ok(late.place('tree', contested.x, contested.z).ok)
+  assert.equal(client.snapshot.buildings.find(b => b.x === contested.x && b.z === contested.z)?.kind, 'path')
+  assert.equal(late.snapshot.buildings.find(b => b.x === contested.x && b.z === contested.z)?.kind, 'tree')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  for (let i = 0; i < 6; i++) { host.tick(0.1); hs.tick(0.1) }
+  await until(() => {
+    const expected = host.snapshot.buildings.find(b => b.x === contested.x && b.z === contested.z)?.kind
+    return Boolean(expected) &&
+      client.snapshot.buildings.find(b => b.x === contested.x && b.z === contested.z)?.kind === expected &&
+      late.snapshot.buildings.find(b => b.x === contested.x && b.z === contested.z)?.kind === expected
+  })
   host.tick(0.1); host.tick(0.1); hs.tick(0.2)
   await until(() => client.snapshot.simTick === host.snapshot.simTick && late.snapshot.simTick === host.snapshot.simTick)
   for (const game of [client, late]) {

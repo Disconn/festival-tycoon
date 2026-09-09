@@ -26,6 +26,8 @@ export function applyGameCommand(game: GameState, command: GameCommand): ActionR
       )
     case 'bulldoze':
       return game.bulldoze(command.x, command.z)
+    case 'bulldozeArea':
+      return game.bulldozeArea(command.cells)
     case 'editTerrain':
       return game.editTerrain(command.x, command.z, command.mode)
     case 'designateRoad':

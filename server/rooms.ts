@@ -159,6 +159,16 @@ export function attachMultiplayer(
         return
       }
 
+      if (message.t === 'commandResult' && joined.id === joined.room.hostId) {
+        const target = joined.room.clients.get(message.to)
+        if (target) send(target.socket, {
+          t: 'commandResult',
+          commandId: message.commandId,
+          result: message.result,
+        })
+        return
+      }
+
       if (
         joined.id === joined.room.hostId &&
         (message.t === 'state' || message.t === 'world' ||

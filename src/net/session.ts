@@ -37,6 +37,12 @@ export class MultiplayerSession {
   private updates = new WorldUpdates()
   private updateSeconds = 0
   private hasWorld = false
+  private pendingCommands = new Set<string>()
+  private commandSequence = 0
+  private lastWorldAt = Date.now()
+  private lastResyncAt = 0
+  private syncRequested = false
+  private needsResync = false
 
   constructor(game: GameState) {
     this.game = game
@@ -76,11 +82,16 @@ export class MultiplayerSession {
   }
 
   tick(deltaSeconds: number): void {
+    if (this.status.mode === 'client') {
+      if (this.needsResync || Date.now() - this.lastWorldAt > 5000) this.requestResync()
+      return
+    }
     if (this.status.mode !== 'host' || this.status.players.length < 2) return
     this.updateSeconds += deltaSeconds
     if (this.updateSeconds < 0.2 || !this.canSend()) return
     // Do not queue stale snapshots on a slow uplink. Keep the delta baseline intact.
     if (this.socket!.bufferedAmount > 512 * 1024) return
+    if (this.syncRequested) { this.pushSync(); return }
     this.updateSeconds = 0
     this.socket!.send(this.updates.encode(packWorld(this.game.snapshot)))
   }
@@ -95,17 +106,23 @@ export class MultiplayerSession {
       this.onToast(result.message, !result.ok)
       this.send({ t: 'result', ...result })
     } : null
+    this.game.onCommandResult = this.status.mode === 'host' ? (command, result) => {
+      const commandId = command.clientCommandId
+      const to = command.originPlayerId
+      if (commandId && to) this.send({ t: 'commandResult', to, commandId, result })
+    } : null
     this.game.onDesync =
       this.status.mode === 'client'
         ? (expected, actual) => {
             this.onToast(`Desync ${expected}≠${actual} – gleiche Welt neu`, true)
-            this.send({ t: 'resync' })
+            this.requestResync()
           }
         : null
   }
 
   private unbindGame(): void {
     this.game.onFestivalResult = null
+    this.game.onCommandResult = null
     this.game.commandOutbox = null
     this.game.onTurnCommit = null
     this.game.onDesync = null
@@ -125,7 +142,7 @@ export class MultiplayerSession {
         this.handleMessage(JSON.parse(String(event.data)) as ServerMessage)
       } catch {
         this.onToast('Ungültiger Weltabgleich – fordere neuen Zustand an', true)
-        this.send({ t: 'resync' })
+        this.requestResync()
       }
     })
     socket.addEventListener('close', () => {
@@ -148,14 +165,35 @@ export class MultiplayerSession {
     this.hasWorld = false
     this.updateSeconds = 0
     this.updates.reset()
+    this.pendingCommands.clear()
+    this.needsResync = false
+    this.syncRequested = false
+    this.lastWorldAt = Date.now()
+    this.lastResyncAt = 0
   }
 
   private sendCommand(command: GameCommand): void {
+    command.clientCommandId ??= `${this.status.playerId}-${++this.commandSequence}`
+    this.pendingCommands.add(command.clientCommandId)
     this.send({ t: 'command', cmd: command })
+  }
+
+  private requestResync(): void {
+    if (this.status.mode !== 'client' || !this.canSend()) return
+    this.needsResync = true
+    const now = Date.now()
+    if (now - this.lastResyncAt < 5000) return
+    this.lastResyncAt = now
+    this.send({ t: 'resync' })
   }
 
   private pushSync(): void {
     if (this.status.mode !== 'host' || !this.canSend()) return
+    if (this.socket!.bufferedAmount > 512 * 1024) {
+      this.syncRequested = true
+      return
+    }
+    this.syncRequested = false
     this.socket!.send(this.updates.encode(packWorld(this.game.snapshot), true))
     this.updateSeconds = 0
   }
@@ -216,7 +254,10 @@ export class MultiplayerSession {
       return
     }
     if (message.t === 'command' && this.status.mode === 'host') {
-      this.game.schedulePublicCommand(message.cmd)
+      this.game.schedulePublicCommand({
+        ...message.cmd,
+        originPlayerId: message.from,
+      })
       return
     }
     if (message.t === 'resync' && this.status.mode === 'host') {
@@ -230,10 +271,25 @@ export class MultiplayerSession {
     if (message.t === 'sync' && this.status.mode === 'client') {
       this.game.applyNetworkWorld(message.world)
       this.hasWorld = true
+      this.needsResync = false
+      this.lastWorldAt = Date.now()
       return
     }
     if (message.t === 'state' && this.status.mode === 'client' && this.hasWorld) {
       this.game.applyNetworkUpdate(message.world, message.visitors, message.removed)
+      this.lastWorldAt = Date.now()
+      return
+    }
+    if (message.t === 'commandResult' && this.status.mode === 'client') {
+      const pending = this.pendingCommands.delete(message.commandId)
+      const optimistic = this.game.resolveOptimisticCommand(message.commandId)
+      if (!pending && !optimistic) return
+      if (!message.result.ok) {
+        this.onToast(message.result.message, true)
+        if (optimistic) this.requestResync()
+      } else if (!optimistic) {
+        this.onToast(message.result.message)
+      }
       return
     }
     if (message.t === 'result') {

@@ -610,6 +610,7 @@ export class GameState {
   onTurnCommit: ((turn: SimTurn) => void) | null = null
   onDesync: ((expected: number, actual: number) => void) | null = null
   onFestivalResult: ((result: ActionResult) => void) | null = null
+  onCommandResult: ((command: GameCommand, result: ActionResult) => void) | null = null
   applyingCommand = false
   worldRevision = 0
   lockstepReady = true
@@ -618,6 +619,8 @@ export class GameState {
   private lastNavRevision = -1
   private scheduledCommands = new Map<number, GameCommand[]>()
   private turnHashes = new Map<number, number>()
+  private optimisticCommandSequence = 0
+  private optimisticCommands = new Map<string, GameCommand>()
 
   constructor(snapshot?: GameSnapshot) {
     this.state = snapshot
@@ -944,17 +947,60 @@ export class GameState {
   gate(command: GameCommand): ActionResult | null {
     if (this.applyingCommand) return null
     if (this.networkMode === 'solo') return null
-    this.commandOutbox?.(command)
-    if (this.networkMode === 'host') {
-      this.scheduleNetworkCommand(command)
+    if (this.networkMode === 'host') return this.executeHostCommand(command)
+    if (this.networkMode === 'client' && this.isOptimisticConstruction(command)) {
+      const commandId = `client-${Date.now().toString(36)}-${++this.optimisticCommandSequence}`
+      command.clientCommandId = commandId
+      this.applyingCommand = true
+      let result: ActionResult
+      try {
+        result = applyGameCommand(this, command)
+      } finally {
+        this.applyingCommand = false
+      }
+      if (!result.ok) return result
+      this.optimisticCommands.set(commandId, structuredClone(command))
+      this.commandOutbox?.(command)
+      return result
     }
+    this.commandOutbox?.(command)
     return { ok: true, message: 'Befehl eingeplant' }
+  }
+
+  private isOptimisticConstruction(command: GameCommand): boolean {
+    if (command.type === 'festival') {
+      return ['ground', 'groundArea', 'depot', 'removeDepot', 'staffGate', 'wayArea', 'stageDesign'].includes(command.action.type)
+    }
+    return [
+      'place', 'placePath', 'undoPath', 'bulldoze', 'bulldozeArea', 'editTerrain',
+      'designateRoad', 'designateParking', 'designateCampingCell',
+      'designateCampingArea', 'designateMedicalArea', 'designateWasteDump',
+      'designateStageForecourt', 'designatePowerCable', 'designatePowerCableArea',
+      'setRoadDirection', 'toggleRoadSeparator', 'toggleCrosswalk', 'setRoadSpeed',
+      'setPathFlow', 'startCoaster', 'appendCoasterPiece', 'undoCoasterPiece',
+      'deleteCoasterPiece', 'setCoasterAccess',
+    ].includes(command.type)
+  }
+
+  resolveOptimisticCommand(commandId: string): boolean {
+    return this.optimisticCommands.delete(commandId)
+  }
+
+  private replayOptimisticCommands(): void {
+    if (this.optimisticCommands.size === 0) return
+    this.applyingCommand = true
+    try {
+      for (const command of this.optimisticCommands.values()) applyGameCommand(this, command)
+    } finally {
+      this.applyingCommand = false
+    }
   }
 
   prepareClientLockstep(): void {
     this.lockstepReady = false
     this.scheduledCommands.clear()
     this.turnHashes.clear()
+    this.optimisticCommands.clear()
   }
 
   receiveTurn(turn: SimTurn): void {
@@ -971,28 +1017,34 @@ export class GameState {
   }
 
   schedulePublicCommand(command: GameCommand): void {
-    this.scheduleNetworkCommand(command)
+    this.executeHostCommand(command)
+  }
+
+  private executeHostCommand(command: GameCommand): ActionResult {
+    const elevation = this.state.buildElevation
+    const rotation = this.state.buildRotation
+    const applying = this.applyingCommand
+    this.applyingCommand = true
+    let result: ActionResult
+    try {
+      if (command.context) {
+        this.state.buildElevation = command.context.buildElevation
+        this.state.buildRotation = command.context.buildRotation
+      }
+      result = applyGameCommand(this, command)
+    } finally {
+      this.state.buildElevation = elevation
+      this.state.buildRotation = rotation
+      this.applyingCommand = applying
+    }
+    this.onCommandResult?.(command, result)
+    if (command.type === 'festival' && !command.originPlayerId) this.onFestivalResult?.(result)
+    return result
   }
 
   private nextId(prefix: string): string {
     this.idCounter += 1
     return `${prefix}-${this.state.simTick}-${this.idCounter}`
-  }
-
-  private scheduleNetworkCommand(command: GameCommand): void {
-    const delay =
-      this.state.speed === 0 ? 0 : SIMULATION_CONFIG.time.commandDelayTicks
-    const tick = this.state.simTick + delay
-    const queued = this.scheduledCommands.get(tick) ?? []
-    queued.push(command)
-    this.scheduledCommands.set(tick, queued)
-    this.onTurnCommit?.({
-      tick,
-      commands: [command],
-      step: this.state.speed > 0,
-      hash: 0,
-    })
-    if (delay === 0) this.advanceOne(false)
   }
 
   private takeScheduledCommands(tick: number): GameCommand[] {
@@ -1030,6 +1082,7 @@ export class GameState {
             this.state.buildRotation = command.context.buildRotation
           }
           const result = applyGameCommand(this, command)
+          this.onCommandResult?.(command, result)
           if (command.type === 'festival') this.onFestivalResult?.(result)
         } finally {
           this.state.buildElevation = elevation
@@ -1094,6 +1147,7 @@ export class GameState {
     this.lastNavRevision = -1
     this.lockstepReady = true
     this.refreshAfterNetworkApply()
+    this.replayOptimisticCommands()
   }
 
   applyNetworkSim(sim: SimSnapshot): void {
@@ -3316,6 +3370,24 @@ export class GameState {
     }
     return result
   }
+
+  bulldozeArea(cells: ReadonlyArray<{ x: number; z: number }>): ActionResult {
+    const unique = new Map(cells.map(cell => [`${cell.x},${cell.z}`, cell]))
+    let removed = 0
+    let lastIssue = 'Auf der Fläche gibt es nichts abzureißen'
+    for (const cell of unique.values()) {
+      const result = this.bulldoze(cell.x, cell.z)
+      if (result.ok) removed += 1
+      else if (result.message !== 'Hier gibt es nichts abzureißen') lastIssue = result.message
+    }
+    return removed > 0
+      ? {
+          ok: true,
+          message: `${removed} ${removed === 1 ? 'Element' : 'Elemente'} entfernt`,
+        }
+      : { ok: false, message: lastIssue }
+  }
+
   private bulldozeAt(x: number, z: number): ActionResult {
     const busStop = this.state.logistics.busStops.find(
       (stop) => stop.x === x && stop.z === z,
