@@ -4,6 +4,16 @@ Spielbare technische Basis für ein isometrisches Aufbau- und Wirtschaftsspiel m
 
 ## Start
 
+Unten links werden die Spielversion aus `package.json` und die beim Build erzeugte
+UTC-Buildkennung angezeigt. Die Kennung bleibt im ausgelieferten JavaScript fest,
+damit auch ältere geladene Clients eindeutig erkennbar sind. Im Entwicklungsmodus
+wird sie beim Start des Dev-Servers erzeugt.
+
+Bei künftigen Änderungen die Projektversion erhöhen (für Fehlerkorrekturen:
+`npm version patch --no-git-tag-version`). Dabei werden `package.json` und
+`package-lock.json` gemeinsam aktualisiert. Jeder Build erhält zusätzlich automatisch
+eine neue Zeitkennung.
+
 ```bash
 npm install
 npm run dev

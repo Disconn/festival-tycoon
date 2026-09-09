@@ -3816,8 +3816,9 @@ window.addEventListener('keydown', (event) => {
 bindGameState(game)
 
 const performanceIndicator = document.createElement('div')
+const versionLabel = `v${__APP_VERSION__} · Build ${__BUILD_ID__} UTC`
 performanceIndicator.className = 'performance-indicator'
-performanceIndicator.textContent = 'FPS — · TPS —'
+performanceIndicator.textContent = `${versionLabel}\nFPS — · TPS —`
 performanceIndicator.title = 'Bilder und lokal ausgeführte Logik-Ticks pro realer Sekunde. In Pause und auf Multiplayer-Clients laufen keine lokalen Logik-Ticks.'
 document.body.append(performanceIndicator)
 let measurementStart = performance.now()
@@ -3859,7 +3860,7 @@ function animate(time: number): void {
   measuredFrames += 1
   const elapsed = time - measurementStart
   if (elapsed >= 1000) {
-    performanceIndicator.textContent = `FPS ${(measuredFrames * 1000 / elapsed).toFixed(0)} · TPS ${(measuredTicks * 1000 / elapsed).toFixed(1)}`
+    performanceIndicator.textContent = `${versionLabel}\nFPS ${(measuredFrames * 1000 / elapsed).toFixed(0)} · TPS ${(measuredTicks * 1000 / elapsed).toFixed(1)}`
     performanceIndicator.textContent += `
 Sim ${(measuredSimulationMs / measuredFrames).toFixed(1)} · Szene ${(measuredViewMs / measuredFrames).toFixed(1)} · Render ${(measuredRenderMs / measuredFrames).toFixed(1)} ms`
     measuredSimulationMs = measuredViewMs = measuredRenderMs = 0
