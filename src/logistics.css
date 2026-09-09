@@ -1,0 +1,79 @@
+.supply-planner { position: absolute; z-index: 24; top: auto; bottom: 64px; right: 6px; left: auto; width: 320px; max-height: calc(100dvh - 170px); padding: 12px; overflow-y: auto; font: 12px/1.5 Tahoma, Verdana, sans-serif; color: #e9ebd6; background: #203c35; border: 2px solid #829481; box-shadow: inset 1px 1px #bac3a0, 3px 4px #112823; }
+.supply-planner[hidden] { display: none; }
+.supply-planner header { display: flex; justify-content: space-between; align-items: start; }
+.supply-planner h2 { margin: 0; color: #efd18b; font-size: 20px; }
+.supply-planner small { color: #bac9b5; }
+.supply-planner p { margin: 7px 0; }
+.supply-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.supply-planner button { min-height: 30px; padding: 5px 8px; font: inherit; }
+.supply-planner button[aria-pressed=true] { background: #806e40; color: #fff2bc; border-color: #dfc480; }
+.supply-planner details { border-top: 1px solid #647c68; padding: 10px 0; }
+.supply-planner summary { cursor: pointer; font-weight: bold; color: #efd18b; }
+.supply-planner form { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 8px 0; }
+.supply-planner label { display: grid; gap: 4px; min-width: 0; }
+.supply-planner input, .supply-planner select { width: 100%; min-width: 0; padding: 6px; background: #122c27; color: #eef0d9; border: 1px solid #738774; }
+.supply-planner form button, .supply-planner [data-points] { grid-column: 1/-1; }
+.supply-card { padding: 9px; background: #18312b; border: 1px solid #506c5b; margin: 7px 0; }
+.supply-card button { margin-top: 5px; display: block; }
+/* Planning supplements the existing build tools. Inspectors temporarily take the right slot. */
+.game-shell:has(.visitor-panel.visible, .staff-panel.visible, .day-plan-panel.visible, .visitor-overview-panel.visible, .complaints-panel.visible, #festival-management:not([hidden])) .supply-planner { visibility: hidden; pointer-events: none; }
+@media (max-width: 780px) { .supply-planner { width: min(230px, 37vw); max-height: calc(100dvh - 195px); font-size: 11px; padding: 7px; } .supply-tools, .supply-planner form { grid-template-columns: 1fr; } }
+
+.logistics-planning .crowding-panel { display: none !important; }
+
+.supply-planner button { background: #38594a; color: #f0efd6; border: 1px solid #8c9c7e; box-shadow: inset 1px 1px #6d8567, inset -1px -1px #1b332c; border-radius: 0; cursor: pointer; }
+.supply-planner button:hover { background: #4b6b55; }
+.supply-planner button:disabled { opacity: .45; cursor: default; }
+
+body #toast { top: auto; bottom: 64px; z-index: 40; max-width: min(640px, calc(100vw - 24px)); width: max-content; border-radius: 2px; }
+
+.way-picker { font: 11px/1.45 Tahoma, sans-serif; padding: 7px 0; }
+.way-picker summary { cursor: pointer; color: #efd18b; font-weight: bold; }
+.way-picker label { display: grid; gap: 4px; margin-top: 8px; }
+.way-picker select { width: 100%; min-width: 0; background: #203c35; color: #eef0d9; padding: 5px; border: 1px solid #738774; }
+.way-picker p { margin: 5px 0; color: #d1d9c4; }
+.way-picker button { width: 100%; background: #38594a; color: #f0efd6; border: 1px solid #8c9c7e; padding: 5px; cursor: pointer; }
+.way-picker small { display: block; margin-top: 6px; color: #b4c0aa; }
+
+.normal-way-picker { margin-bottom: 6px; }
+.normal-way-picker .way-picker-body { position: absolute; left: calc(100% + 8px); top: 0; width: 250px; max-height: calc(100dvh - 165px); overflow-y: auto; padding: 12px; background: #203c35; border: 2px solid #829481; box-shadow: 3px 4px #112823; }
+.normal-way-picker summary { padding: 7px; background: #38594a; border: 1px solid #8c9c7e; }
+.build-menu:has(.way-picker[open]) { z-index: 26; }
+@media (max-width: 780px) { .normal-way-picker .way-picker-body { width: min(225px, calc(100vw - 190px)); max-height: calc(100dvh - 190px); } }
+
+@media (max-height: 760px) {
+  .build-menu #path-tools .tool { min-height: 34px; padding: 4px; }
+  .build-menu .park-price { padding: 5px; margin: 5px 0; }
+  .build-menu .tool-divider { margin: 5px 0; }
+  .build-menu .path-editor-launch { margin: 4px 0; padding: 5px; }
+  .build-menu .build-elevation { padding: 5px; }
+  .build-menu .editor-buttons button { padding: 5px; min-height: 28px; }
+  .build-menu .build-categories { max-height: max(75px, calc(100dvh - 545px)); }
+  .normal-way-picker .way-picker { padding: 3px 0; }
+}
+
+.integrated-way-picker { margin: 0 0 6px; }
+.integrated-way-picker.compact { padding: 0; font-size: 10px; }
+.integrated-way-picker.compact label { margin-top: 0; }
+.integrated-way-picker [data-way-estimate]:empty { display: none; }
+#path-construction .integrated-way-picker { border-bottom: 1px solid #647c68; padding-bottom: 6px; }
+
+.way-icon-palette { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; }
+.way-picker .way-icon { min-width: 0; width: 100%; height: 36px; padding: 4px; border: 1px solid #718574; box-shadow: inset 1px 1px #738d73, inset -1px -1px #172d26; background: #344f43; display: grid; place-items: center; }
+.way-picker .way-icon:hover { background: #50674c; }
+.way-picker .way-icon[aria-pressed=true] { background: #786538; border-color: #edcc79; box-shadow: inset 1px 1px #483f25, inset -1px -1px #dbc27c; }
+.way-picker .way-icon:focus-visible { outline: 2px solid #f5d48a; outline-offset: 2px; }
+.way-swatch { width: 23px; height: 20px; display: block; transform: rotate(-16deg) skewX(16deg) scaleY(.8); box-shadow: -2px 3px #493e30, -3px 4px #202c24; background-color: #b19a71; border: 1px solid #d0ba92; }
+.way-swatch[data-surface=footDirt], .way-swatch[data-surface=roadDirt] { background-image: linear-gradient(90deg, transparent 15%, #8e7959 16% 24%, transparent 25% 74%, #8e7959 75% 83%, transparent 84%); }
+.way-swatch[data-surface=footGravel], .way-swatch[data-surface=roadGravel] { background-color: #b8b3a0; background-image: radial-gradient(#77796c 1px, transparent 1px), radial-gradient(#dfd8c1 1px, transparent 1px); background-size: 5px 5px, 7px 7px; background-position: 0 0, 2px 2px; }
+.way-swatch[data-surface=footBoard] { background: repeating-linear-gradient(0deg, #a68a62 0 4px, #64513b 4px 5px); }
+.way-swatch[data-surface=footPaved] { background-color: #c2bbaa; background-image: linear-gradient(#8e897d 1px, transparent 1px), linear-gradient(90deg, #8e897d 1px, transparent 1px); background-size: 9px 6px; }
+.way-swatch[data-surface=roadPlates] { background-color: #7a8581; background-image: linear-gradient(#3f4d49 1px, transparent 1px), linear-gradient(90deg, #3f4d49 1px, transparent 1px); background-size: 12px 10px; border-color: #a3aea5; }
+.way-swatch[data-surface=roadAsphalt] { background: repeating-linear-gradient(0deg, transparent 0 4px, #d1cbae 4px 8px) center/2px 100% no-repeat, #50555a; border-color: #89948e; }
+.way-selection-label { font-size: 10px; line-height: 1.35; margin: 3px 0 0 !important; color: #e3cf96 !important; }
+
+.game-shell:has(#path-construction.visible, #coaster-builder.visible) .crowding-panel { display: none; }
+
+.integrated-way-picker .way-selection-label { min-height: 0; padding: 0; background: none; border: 0; }
+
+.supply-planner [data-depot-settings] label:first-child { grid-column: 1 / -1; }

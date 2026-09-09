@@ -1,0 +1,22 @@
+{
+  "name": "festival-simulator",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "node scripts/test.mjs",
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.4",
+    "@types/ws": "^8.18.1",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.2",
+    "ws": "^8.18.3"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  }
+}
