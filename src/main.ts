@@ -3,6 +3,7 @@ import { mountStageEditor } from './stageEditor'
 import { stageStats } from './game/stageDesign'
 import { mountStaffDetails } from './staffDetailsUI'
 import { encodeSaveText, decodeSaveText } from './game/saveText'
+import { deleteServerSave, listServerSaves, loadServerSave, saveServerSave, type ServerSaveSlot } from './game/serverSaves'
 import { ENVIRONMENTS } from './game/environments'
 import type { Environment } from './game/environments'
 import { mountLogisticsUI } from './logisticsUI'
@@ -96,6 +97,7 @@ app.innerHTML = `
         <button id="save">Speichern</button>
         <button id="copy-save" class="save-text-icon" title="Spielstand als Base64 kopieren" aria-label="Spielstand als Base64 kopieren">⧉</button>
         <button id="load">Laden</button>
+        <button id="save-slots" title="Lokale Spielstände verwalten">Spielstände</button>
         <button id="paste-save" class="save-text-icon" title="Base64-Spielstand einfügen" aria-label="Base64-Spielstand einfügen">▣</button>
       </div>
     </header>
@@ -3523,6 +3525,97 @@ document.querySelector<HTMLButtonElement>('#save')?.addEventListener('click', ()
   showToast(game.save().message)
 })
 
+const saveSlotsDialog = document.createElement('dialog')
+saveSlotsDialog.className = 'save-slots-dialog'
+saveSlotsDialog.innerHTML = `<header><div><h2>Lokale Spielstände</h2><p data-save-storage>Spielstände werden geladen …</p></div><button data-close aria-label="Spielstände schließen">×</button></header><form data-save-slot><label>Name<input name="name" maxlength="40" placeholder="z. B. Samstagabend" required></label><button>Neuen Spielstand speichern</button></form><p class="save-slots-message" role="status"></p><div class="save-slots-list"></div>`
+document.body.append(saveSlotsDialog)
+const saveSlotsList = saveSlotsDialog.querySelector<HTMLElement>('.save-slots-list')!
+const saveSlotsMessage = saveSlotsDialog.querySelector<HTMLElement>('.save-slots-message')!
+const saveStorageInfo = saveSlotsDialog.querySelector<HTMLElement>('[data-save-storage]')!
+const saveSlotName = saveSlotsDialog.querySelector<HTMLInputElement>('[name=name]')!
+const formatSaveTime = (value: number) => new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' }).format(value)
+let serverSaveSlots: ServerSaveSlot[] | null = null
+function bindLoadedGame(loaded: GameState, message: string): void {
+  if (pathEditorActive) closePathEditor()
+  bindGameState(loaded)
+  fillScenarioForm(loaded.snapshot.scenario)
+  showToast(message)
+}
+function showSaveSlots(slots: ServerSaveSlot[], onServer: boolean): void {
+  saveSlotsList.innerHTML = slots.length
+    ? slots.map(slot => `<article data-slot="${slot.id}"><div><strong>${escapeHtml(slot.name)}</strong><small>${formatSaveTime(slot.savedAt)}</small></div><div><button data-load-slot="${slot.id}">Laden</button><button data-overwrite-slot="${slot.id}">Überschreiben</button><button data-delete-slot="${slot.id}" aria-label="${escapeHtml(slot.name)} löschen">×</button></div></article>`).join('')
+    : `<p class="save-slots-empty">Noch keine benannten Spielstände ${onServer ? 'auf dem lokalen Server' : 'im Browser'}. Der Button „Speichern“ bleibt der schnelle Einzelspielstand.</p>`
+}
+async function renderSaveSlots(): Promise<void> {
+  try {
+    serverSaveSlots = await listServerSaves()
+    saveStorageInfo.textContent = 'Bis zu 20 Spielstände liegen lokal im Ordner „saves“ des Spielservers.'
+    showSaveSlots(serverSaveSlots, true)
+  } catch {
+    serverSaveSlots = null
+    saveStorageInfo.textContent = 'Der Spielserver ist nicht erreichbar. Bis zu 20 Spielstände werden stattdessen in diesem Browser gespeichert.'
+    showSaveSlots(GameState.listSaveSlots(), false)
+  }
+}
+async function openSaveSlots(): Promise<void> {
+  if (multiplayer.status.mode === 'client') { showToast('Nur der Host kann Spielstände verwalten', true); return }
+  saveSlotsMessage.textContent = ''
+  saveSlotName.value = ''
+  saveSlotsDialog.showModal()
+  await renderSaveSlots()
+  saveSlotName.focus()
+}
+saveSlotsDialog.querySelector('[data-close]')!.addEventListener('click', () => saveSlotsDialog.close())
+saveSlotsDialog.querySelector<HTMLFormElement>('[data-save-slot]')!.addEventListener('submit', async event => {
+  event.preventDefault()
+  try {
+    if (serverSaveSlots) {
+      const saved = await saveServerSave(saveSlotName.value, JSON.stringify(game.snapshot))
+      saveSlotsMessage.textContent = `Spielstand „${saved.name}“ auf dem lokalen Server gespeichert`
+    } else {
+      const result = game.saveSlot(saveSlotName.value)
+      saveSlotsMessage.textContent = result.message
+      if (!result.ok) return
+    }
+    saveSlotName.value = ''
+    await renderSaveSlots()
+  } catch (error) { saveSlotsMessage.textContent = error instanceof Error ? error.message : 'Spielstand konnte nicht gespeichert werden' }
+})
+saveSlotsDialog.addEventListener('click', async event => {
+  const button = (event.target as Element).closest<HTMLButtonElement>('[data-load-slot],[data-overwrite-slot],[data-delete-slot]')
+  if (!button) return
+  const id = button.dataset.loadSlot ?? button.dataset.overwriteSlot ?? button.dataset.deleteSlot!
+  if (button.dataset.loadSlot) {
+    let loaded: GameState | null
+    try { loaded = serverSaveSlots ? GameState.fromJSON((await loadServerSave(id)).snapshot) : GameState.loadSlot(id) } catch { loaded = null }
+    if (!loaded) { saveSlotsMessage.textContent = 'Dieser Spielstand ist ungültig oder nicht mehr vorhanden.'; renderSaveSlots(); return }
+    bindLoadedGame(loaded, 'Lokaler Spielstand geladen')
+    saveSlotsDialog.close()
+    return
+  }
+  if (button.dataset.overwriteSlot) {
+    const slot = (serverSaveSlots ?? GameState.listSaveSlots()).find(item => item.id === id)
+    if (!slot) { renderSaveSlots(); return }
+    try {
+      if (serverSaveSlots) await saveServerSave(slot.name, JSON.stringify(game.snapshot), id)
+      else { const result = game.saveSlot(slot.name, id); if (!result.ok) throw new Error(result.message) }
+      saveSlotsMessage.textContent = `Spielstand „${slot.name}“ überschrieben`
+      await renderSaveSlots()
+    } catch (error) { saveSlotsMessage.textContent = error instanceof Error ? error.message : 'Spielstand konnte nicht überschrieben werden' }
+    return
+  }
+  const slot = (serverSaveSlots ?? GameState.listSaveSlots()).find(item => item.id === id)
+  if (!slot) { renderSaveSlots(); return }
+  if (!window.confirm(`Spielstand „${slot.name}“ wirklich löschen?`)) return
+  try {
+    if (serverSaveSlots) await deleteServerSave(id)
+    else { const result = GameState.deleteSaveSlot(id); if (!result.ok) throw new Error(result.message) }
+    saveSlotsMessage.textContent = 'Spielstand gelöscht'
+    await renderSaveSlots()
+  } catch (error) { saveSlotsMessage.textContent = error instanceof Error ? error.message : 'Spielstand konnte nicht gelöscht werden' }
+})
+document.querySelector<HTMLButtonElement>('#save-slots')?.addEventListener('click', openSaveSlots)
+
 const saveTextDialog = document.createElement('dialog')
 saveTextDialog.className = 'save-text-dialog'
 saveTextDialog.innerHTML = `<h2>Spielstand als Text</h2><p>Base64-Text kopieren oder einen erhaltenen Spielstand einfügen.</p><textarea aria-label="Base64-Spielstand" spellcheck="false"></textarea><p class="save-text-error" role="alert"></p><div><button data-import>Spielstand laden</button><button data-close>Schließen</button></div>`
@@ -3585,10 +3678,7 @@ document.querySelector<HTMLButtonElement>('#load')?.addEventListener('click', ()
     showToast('Kein gültiger Spielstand gefunden', true)
     return
   }
-  if (pathEditorActive) closePathEditor()
-  bindGameState(loaded)
-  fillScenarioForm(loaded.snapshot.scenario)
-  showToast('Spielstand geladen')
+  bindLoadedGame(loaded, 'Spielstand geladen')
 })
 
 document.querySelector<HTMLButtonElement>('#close-visitor')?.addEventListener('click', () => {

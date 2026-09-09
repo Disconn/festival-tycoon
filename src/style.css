@@ -2183,6 +2183,23 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .save-text-dialog p { font-size: 12px; }
 .save-text-error { color: #ffc0aa; }
 
+.save-slots-dialog { width: min(680px, 90vw); color: #dedcc6; background: #263c2e; border: 2px solid #a89b61; border-radius: 5px; }
+.save-slots-dialog::backdrop { background: #0009; }
+.save-slots-dialog header { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
+.save-slots-dialog h2 { margin: 0; font-size: 18px; }
+.save-slots-dialog header p, .save-slots-message, .save-slots-empty { font-size: 12px; color: #c5d3c5; }
+.save-slots-dialog header > button { font-size: 20px; line-height: 1; }
+.save-slots-dialog form { display: flex; gap: 8px; align-items: end; padding: 12px; background: #1d352a; border: 1px solid #5f7866; }
+.save-slots-dialog form label { display: grid; gap: 5px; flex: 1; font-size: 12px; }
+.save-slots-dialog input { padding: 8px; color: #f2eed4; background: #14291f; border: 1px solid #829b7b; font: inherit; }
+.save-slots-dialog button { color: #f2eed4; background: linear-gradient(#4a6d60, #35564b); border: 1px solid #829b7b; padding: 7px 9px; cursor: pointer; font: inherit; }
+.save-slots-list { display: grid; gap: 7px; max-height: min(48vh, 420px); overflow: auto; }
+.save-slots-list article { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px; background: #203a31; border: 1px solid #577364; }
+.save-slots-list strong, .save-slots-list small { display: block; }
+.save-slots-list small { margin-top: 4px; color: #b7c9bb; font-variant-numeric: tabular-nums; }
+.save-slots-list article > div:last-child { display: flex; gap: 5px; flex-wrap: wrap; justify-content: end; }
+@media (max-width: 520px) { .save-slots-dialog form, .save-slots-list article { align-items: stretch; flex-direction: column; } .save-slots-list article > div:last-child { justify-content: stretch; } }
+
 .staff-details { position: fixed; right: 6px; top: 100px; width: 265px; max-height: calc(100vh - 175px); overflow: auto; z-index: 45; padding: 10px; }
 .staff-details[hidden] { display: none; }
 .staff-details header { display:flex; justify-content:space-between; align-items:center; }

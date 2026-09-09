@@ -7,7 +7,7 @@ import type { WayType } from './wayTypes'
 import { groundRectangle } from './ground'
 import { createInfrastructure, updateSupplyChain, localStock, consumeLocal } from './supplyChain'
 import { groundInfo, groundKey, buildingEfficiency, roadGroundLimit } from './ground'
-import { BUILDINGS, SAVE_KEY } from './catalog'
+import { BUILDINGS, SAVE_KEY, SAVE_SLOTS_KEY } from './catalog'
 import { createFestivalManagement, festivalAction, updateFestival, assignAudience, activeBookings, showIssue, BANDS } from './festivalManagement'
 import type { FestivalManagement, FestivalAction, Audience, Booking } from './festivalManagement'
 import {
@@ -360,6 +360,14 @@ export type ActionResult = {
   ok: boolean
   message: string
 }
+
+export type LocalSaveSlot = {
+  id: string
+  name: string
+  savedAt: number
+}
+
+type StoredSaveSlot = LocalSaveSlot & { snapshot: string }
 
 type Listener = (snapshot: Readonly<GameSnapshot>) => void
 
@@ -5327,6 +5335,68 @@ export class GameState {
   save(): ActionResult {
     localStorage.setItem(SAVE_KEY, JSON.stringify(this.state))
     return { ok: true, message: 'Spiel gespeichert' }
+  }
+
+  saveSlot(name: string, id?: string): ActionResult {
+    const trimmed = name.trim().replace(/\s+/g, ' ').slice(0, 40)
+    if (!trimmed) return { ok: false, message: 'Bitte einen Namen für den Spielstand eingeben' }
+    try {
+      const slots = GameState.readSaveSlots()
+      const target = id ? slots.find(slot => slot.id === id) : undefined
+      if (!target && slots.length >= 20) return { ok: false, message: 'Maximal 20 lokale Spielstände möglich' }
+      const savedAt = Date.now()
+      const next: StoredSaveSlot = {
+        id: target?.id ?? `slot-${savedAt}-${Math.random().toString(36).slice(2, 8)}`,
+        name: trimmed,
+        savedAt,
+        snapshot: JSON.stringify(this.state),
+      }
+      const updated = target
+        ? slots.map(slot => slot.id === target.id ? next : slot)
+        : [...slots, next]
+      localStorage.setItem(SAVE_SLOTS_KEY, JSON.stringify(updated))
+      return { ok: true, message: `Spielstand „${trimmed}“ gespeichert` }
+    } catch {
+      return { ok: false, message: 'Lokaler Spielstandsspeicher ist nicht verfügbar' }
+    }
+  }
+
+  static listSaveSlots(): LocalSaveSlot[] {
+    return GameState.readSaveSlots()
+      .map(({ id, name, savedAt }) => ({ id, name, savedAt }))
+      .sort((a, b) => b.savedAt - a.savedAt)
+  }
+
+  static loadSlot(id: string): GameState | null {
+    const slot = GameState.readSaveSlots().find(candidate => candidate.id === id)
+    return slot ? GameState.fromJSON(slot.snapshot) : null
+  }
+
+  static deleteSaveSlot(id: string): ActionResult {
+    try {
+      const slots = GameState.readSaveSlots()
+      if (!slots.some(slot => slot.id === id)) return { ok: false, message: 'Spielstand nicht gefunden' }
+      localStorage.setItem(SAVE_SLOTS_KEY, JSON.stringify(slots.filter(slot => slot.id !== id)))
+      return { ok: true, message: 'Spielstand gelöscht' }
+    } catch {
+      return { ok: false, message: 'Lokaler Spielstandsspeicher ist nicht verfügbar' }
+    }
+  }
+
+  private static readSaveSlots(): StoredSaveSlot[] {
+    try {
+      const raw = localStorage.getItem(SAVE_SLOTS_KEY)
+      if (!raw) return []
+      const parsed = JSON.parse(raw)
+      if (!Array.isArray(parsed)) return []
+      return parsed.filter((slot): slot is StoredSaveSlot =>
+        slot && typeof slot.id === 'string' && typeof slot.name === 'string' &&
+        typeof slot.savedAt === 'number' && typeof slot.snapshot === 'string' &&
+        GameState.fromJSON(slot.snapshot) !== null,
+      )
+    } catch {
+      return []
+    }
   }
 
   static load(): GameState | null {

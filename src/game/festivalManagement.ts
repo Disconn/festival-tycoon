@@ -172,8 +172,8 @@ export function festivalAction(s: GameSnapshot, action: FestivalAction): ActionR
   if (action.type === 'start') {
     if (f.enabled && !f.finished) return fail('Das Festivalwochenende läuft bereits')
     if (f.tickets && f.tickets.camping > Math.floor(s.campingCells.length * (1 - s.dayPlan.campingCapacityBufferPercent / 100))) return fail('Für die Campingtickets fehlen nutzbare Plätze')
-    if (f.tickets) { f.tickets.usedDay = {}; f.tickets.usedCamping = 0 }
     if(!f.finished&&f.bookings.some(b=>b.day<f.startDay+s.dayPlan.leadDays||b.day>=f.startDay+s.dayPlan.leadDays+s.dayPlan.festivalDays||!bookingHoursOpen(s,b.start,b.duration)))return fail('Spielplan passt nicht zur Tagesplanung. Auftritte zuerst anpassen.')
+    if (f.tickets) { f.tickets.usedDay = {}; f.tickets.usedCamping = 0 }
     const plannedStart=f.startDay
     if(f.finished)f.bookings=[]
     else f.bookings.forEach(b=>b.day+=s.day-plannedStart)

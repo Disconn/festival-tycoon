@@ -58,3 +58,5 @@
 @media(max-width:780px){.band-palette{grid-template-columns:repeat(2,minmax(0,1fr))}.music-legend{grid-template-columns:repeat(2,1fr)}.music-wheel{width:170px}}
 
 .planner-board{display:grid;grid-template-columns:300px minmax(0,1fr);gap:12px;margin:12px 0;align-items:start}.planner-board .band-palette{grid-template-columns:1fr;max-height:440px;overflow-y:auto;margin:0;padding:3px}.planner-board .show-scroll{min-height:220px}.planner-board .show-timeline{min-width:1250px}@media(max-width:780px){.planner-board{grid-template-columns:1fr}.planner-board .band-palette{grid-template-columns:repeat(2,minmax(0,1fr));max-height:250px}}
+
+.band-card,.show-booking{touch-action:none;user-select:none}

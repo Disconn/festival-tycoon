@@ -1,6 +1,7 @@
 import type { Plugin, ViteDevServer } from 'vite'
 import { WebSocketServer } from 'ws'
 import { attachMultiplayer, localJoinHost } from './rooms.ts'
+import { handleSaveRequest } from './saveSlots.ts'
 
 function bindWebSocket(
   server: ViteDevServer,
@@ -27,12 +28,14 @@ export function festivalMultiplayer(): Plugin {
     name: 'festival-multiplayer',
     configureServer(server) {
       bindWebSocket(server, server.config.server.port ?? 5173)
+      server.middlewares.use((request, response, next) => { void handleSaveRequest(request, response).then(handled => { if (!handled) next() }) })
     },
     configurePreviewServer(server) {
       bindWebSocket(
         server as unknown as ViteDevServer,
         server.config.preview.port ?? 4173,
       )
+      server.middlewares.use((request, response, next) => { void handleSaveRequest(request, response).then(handled => { if (!handled) next() }) })
     },
   }
 }

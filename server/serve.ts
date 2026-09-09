@@ -5,6 +5,7 @@ import { extname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
 import { attachMultiplayer, localJoinHost } from './rooms.ts'
+import { handleSaveRequest } from './saveSlots.ts'
 
 const PORT = Number(process.env.PORT || 8080)
 const HOST = process.env.HOST || '0.0.0.0'
@@ -48,6 +49,7 @@ async function existingFile(path: string): Promise<string | null> {
 }
 
 const server = createServer(async (request, response) => {
+  if (await handleSaveRequest(request, response)) return
   const requested = safeFile(request.url ?? '/')
   const file = requested ? await existingFile(requested) : null
   const fallback = file ?? (await existingFile(join(DIST, 'index.html')))
