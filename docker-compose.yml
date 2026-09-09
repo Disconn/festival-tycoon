@@ -7,4 +7,6 @@ services:
     environment:
       PORT: "8080"
       HOST: "0.0.0.0"
+    volumes:
+      - ./saves:/app/saves
     restart: unless-stopped

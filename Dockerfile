@@ -18,7 +18,8 @@ ENV PORT=8080
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
-COPY server/rooms.ts server/serve.ts ./server/
+COPY server ./server
+RUN mkdir -p /app/saves && chown node:node /app/saves
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD wget -qO- http://127.0.0.1:8080/ >/dev/null || exit 1
