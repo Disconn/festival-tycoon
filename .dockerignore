@@ -1,0 +1,16 @@
+.git
+.github
+.idea
+.vscode
+.cursor
+dist
+node_modules
+scripts
+test-results
+tests
+*.md
+*.local
+.test-scenario.json
+.dockerignore
+Dockerfile
+docker-compose.yml

@@ -7,16 +7,17 @@
     "test": "node scripts/test.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node --experimental-strip-types server/serve.ts"
   },
   "devDependencies": {
     "@types/three": "^0.185.4",
     "@types/ws": "^8.18.1",
     "typescript": "~6.0.2",
-    "vite": "^8.2.2",
-    "ws": "^8.18.3"
+    "vite": "^8.2.2"
   },
   "dependencies": {
-    "three": "^0.185.1"
+    "three": "^0.185.1",
+    "ws": "^8.18.3"
   }
 }

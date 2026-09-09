@@ -16,6 +16,22 @@ npm run build
 npm run preview
 ```
 
+## Docker und öffentliche Builds
+
+GitHub Actions baut bei jedem Push auf `master` das Spiel und stellt es öffentlich bereit:
+
+- **Release:** https://github.com/y1zz1y/festival-tycoon/releases/latest (`festival-tycoon-web.zip`)
+- **Actions-Artefakt:** Workflow-Lauf *Build* → `festival-tycoon-web`
+- **Container:** `ghcr.io/y1zz1y/festival-tycoon:latest`
+
+Lokal spielen (HTTP auf Port 8080, inkl. Mehrspieler):
+
+```bash
+docker run --rm -p 8080:8080 ghcr.io/y1zz1y/festival-tycoon:latest
+```
+
+Oder aus dem Repo: `docker compose up --build`. Danach http://localhost:8080 öffnen.
+
 ## Umgebungen und Gelände
 
 Unter **Szenario** stehen Ackerland, Wüste, Grasfläche und Stadtfläche zur Wahl.
@@ -382,3 +398,13 @@ Vorlagen kosten beim Speichern nichts. **Für Bühnenbau verwenden** wählt die 
 Motortraversen bewegen ihre angehängten Bauteile gemeinsam vertikal. Der Showregler **Traversenhub** bestimmt den Hub, **Bewegung / Tempo** die Geschwindigkeit; der Fahrbereich am Boden bleibt frei. **Feuerwerksmodul** und **Funkenfontäne** werden am Boden platziert und über **Feuerwerk / Funken** je Showphase gesteuert. Ohne aktiven, versorgten Auftritt bleiben die Effekte aus. Vorhandene Vorlagen ohne diese Regler behalten Hub und Pyrotechnik auf null. Neue Entwürfe steigern beide Werte bis zum Finale. Kosten, Strombedarf und Partywerte berücksichtigen die neuen Module.
 
 Gebuchte Bands stehen während gültiger, stromversorgter Auftritte als animierte Pixel-Musiker auf Standard- und selbstgebauten Bühnen. Die Besetzung unterscheidet Gitarren, Gesang, Schlagzeug, Bläser und Keyboards passend zur Band. Auf selbstgebauten Bühnen stehen Musiker ausschließlich auf platzierten Bühnenpodesten und in deren korrekter Höhe. Zuschauerfelder, andere Bodenaufbauten und Motortraversen-Fahrbereiche bleiben frei. Ohne Podeste erscheinen keine Musiker; für eine vierköpfige Band werden vier Podeste benötigt. Standardbühnen nutzen ihre feste Plattform. Die Bühnenwerkstatt bietet eine abschaltbare Indie-Bandvorschau zur Platzplanung. Musiker sind eine visuelle Darstellung der vorhandenen Buchung; diese Erweiterung erzeugt keine Musik-Audiospur.
+
+### Musikpublikum und Bühnenzeitplan
+
+Unter **Bands & Spielplan** stehen die Bandbibliothek und ein Zeitraster pro Bühne nebeneinander. Tag und Auftrittsdauer wählen, dann eine Band auf die gewünschte Startzeit ziehen. Alternativ zuerst Band und dann Zeitblock anklicken. Bereits gebuchte Auftritte lassen sich ebenso zwischen Bühnen und Zeiten verschieben, ohne weitere Gage. Das Raster zeigt die Öffnungszeiten der Bühnen laut Tagesplan und 30 Minuten Umbauzeit. Überschneidungen, fehlender Ruf, Budget und unzulässige Zeiten werden vor jeder Änderung geprüft. Bereits vor Festivalstart kann verbindlich gebucht werden; das Programm bleibt beim Start erhalten und die vorab bezahlten Gagen zählen zur Festivalbilanz.
+
+Acht eigenständige Musikgeschmäcker ergänzen die bisherigen sozialen Zielgruppen: **Folk, Indie, Rock, Metal, Electro, Dance, Pop, Soul**. Die Reihenfolge im Farbkreis bildet eine vereinfachte musikalische Nachbarschaft ab. Bandkarten zeigen die Geschmackspassung für alle acht Gruppen, Gage, Zugkraft und technische Anforderungen. Kreisdiagramme vergleichen die dauerhafte Besucherbasis, erwartete Gäste und die nach Spielminuten gewichtete Genreverteilung des Programms. Die Prognose besteht aus 75 % Basis und 25 % Programm; Ticketkontingente und tatsächliche Nachfrage begrenzen weiterhin die Anreisen.
+
+Besucher behalten ihren individuellen Musikgeschmack, wählen bevorzugt passende Auftritte und meiden stark abweichende Genres auch bei der allgemeinen Suche nach Partyorten. Ähnliche Musikrichtungen werden teilweise akzeptiert. Gleichzeitige ähnliche Programme konkurrieren um dieselben Musikfans; unterschiedliche Genres helfen, Besucher zu verteilen. Der Musikgeschmack steht im Besucherinfofenster.
+
+Nach dem Festival entwickelt sich die Basis einmalig aus 80 % bisheriger Basis, 18 % tatsächlich gespieltem, nach Zugkraft gewichtetem Programm und 2 % gleichmäßigem Grundinteresse weiter. Ausgefallene oder nur gebuchte Auftritte zählen nicht. Ohne gespielte Musik bleibt die Basis gleich. **Nächste Ausgabe vorbereiten** öffnet die Planung bei geschlossenem Park, behält die gewachsene Basis und startet die Uhr erst mit **Festival starten**. Geschmack, Buchungen und Entwicklung bleiben in Spielständen, Base64-Export und Multiplayer erhalten; alte Spielstände beginnen ohne vorhandene Genredaten mit gleichen Anteilen.

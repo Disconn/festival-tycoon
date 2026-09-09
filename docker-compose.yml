@@ -1,0 +1,10 @@
+services:
+  festival:
+    build: .
+    image: festival-tycoon
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      HOST: "0.0.0.0"
+    restart: unless-stopped
