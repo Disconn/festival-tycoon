@@ -279,9 +279,12 @@ export class WorldView {
   private interpolatedTick = -1
   private previousVisitorPositions = new Map<string, { x: number; y: number; z: number }>()
   private currentVisitorPositions = new Map<string, { x: number; y: number; z: number }>()
+  private visitorSeedCache = new Map<string, number>()
   private prevTrainDistance = new Map<string, number>()
   private currTrainDistance = new Map<string, number>()
   private buildingFingerprint = ''
+  private lastGroundRevision = -1
+  private cachedFootwayFingerprint = ''
   private coasterFingerprint = ''
   private wasteBins: PlacedBuilding[] = []
   private lightingBuildings: PlacedBuilding[] = []
@@ -413,7 +416,11 @@ export class WorldView {
     const dataChanged = worldRevision === undefined || snapshot !== this.lastVisualSnapshot || revision !== this.lastVisualRevision
     this.lastVisualSnapshot = snapshot
     this.lastVisualRevision = revision
-    const fingerprint = dataChanged ? this.buildingFingerprintOf(snapshot.buildings) + JSON.stringify(Object.entries(snapshot.festival.infrastructure.ground).filter(([, g]) => g.footway).map(([k, g]) => [k, g.footway])) : this.buildingFingerprint
+    if (dataChanged && (worldRevision === undefined || worldRevision !== this.lastGroundRevision)) {
+      this.lastGroundRevision = worldRevision ?? this.lastGroundRevision
+      this.cachedFootwayFingerprint = JSON.stringify(Object.entries(snapshot.festival.infrastructure.ground).filter(([, g]) => g.footway).map(([k, g]) => [k, g.footway]))
+    }
+    const fingerprint = dataChanged ? this.buildingFingerprintOf(snapshot.buildings) + this.cachedFootwayFingerprint : this.buildingFingerprint
 
     this.currentSnapshot = snapshot
     this.syncInterpolation(snapshot, renderAlpha)
@@ -550,9 +557,12 @@ export class WorldView {
     this.terrainFingerprint = ''
     this.buildingFingerprint = ''
     this.coasterFingerprint = ''
+    this.lastGroundRevision = -1
+    this.cachedFootwayFingerprint = ''
     this.interpolatedTick = -1
     this.previousVisitorPositions.clear()
     this.currentVisitorPositions.clear()
+    this.visitorSeedCache.clear()
     this.prevTrainDistance.clear()
     this.currTrainDistance.clear()
     this.lastDayMinute = Number.NEGATIVE_INFINITY
@@ -1821,11 +1831,18 @@ export class WorldView {
     if (meshes.length === 0) return
     if (this.visitorInstanceIds.length !== visitors.length) {
       this.visitorInstanceIds = visitors.map((visitor) => visitor.id)
+      if (this.visitorSeedCache.size > visitors.length * 2 + 32) {
+        const activeIds = new Set(this.visitorInstanceIds)
+        for (const id of this.visitorSeedCache.keys()) {
+          if (!activeIds.has(id)) this.visitorSeedCache.delete(id)
+        }
+      }
     } else {
       for (let index = 0; index < visitors.length; index += 1) {
         this.visitorInstanceIds[index] = visitors[index]!.id
       }
     }
+    let buildingsById: Map<string, PlacedBuilding> | null = null
     const now = performance.now()
     const lodRadius = 14 / Math.max(0.65, this.zoom)
     for (const batch of this.emotionInstances.values()) batch.count = 0
@@ -1868,7 +1885,11 @@ export class WorldView {
       const distance = Math.hypot(dx, dz)
       const detailed = distance < lodRadius
       const intoxication = Math.max(0, Math.min(1, (visitor.alcoholLevel - 25) / 60))
-      const seed = Number(visitor.id.replace(/\D/g, '').slice(-3)) || index
+      let seed = this.visitorSeedCache.get(visitor.id)
+      if (seed === undefined) {
+        seed = Number(visitor.id.replace(/\D/g, '').slice(-3)) || index
+        this.visitorSeedCache.set(visitor.id, seed)
+      }
       const pace = streaking
         ? 2.15
         : visitor.emotion === 'angry'
@@ -1931,10 +1952,11 @@ export class WorldView {
           { x: 0, z: -1 },
           { x: -1, z: 0 },
         ]
+        if (!buildingsById && this.currentSnapshot) {
+          buildingsById = new Map(this.currentSnapshot.buildings.map((building) => [building.id, building]))
+        }
         const benchRotation = visitor.targetId
-          ? this.currentSnapshot?.buildings.find(
-              (building) => building.id === visitor.targetId,
-            )?.rotation ?? 0
+          ? buildingsById?.get(visitor.targetId)?.rotation ?? 0
           : 0
         const direction = directions[benchRotation]!
         activityOffsetX =
