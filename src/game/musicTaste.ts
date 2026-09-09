@@ -8,7 +8,16 @@ export const GENRES = [
 ] as const
 export type MusicGenre=typeof GENRES[number]['id']
 export type MusicMix=Record<MusicGenre,number>
-const bandGenres:Record<string,MusicGenre>={meadow:'indie',brass:'pop',campfire:'folk',velvet:'soul',neon:'electro',static:'rock',orbit:'dance',aurora:'indie',iron:'metal',confetti:'pop'}
+const bandGenres:Record<string,MusicGenre>={
+  meadow:'indie',lantern:'indie',paper:'indie',aurora:'indie',
+  brass:'pop',sugar:'pop',firefly:'pop',confetti:'pop',
+  campfire:'folk',cedar:'folk',harbor:'folk',
+  velvet:'soul',amber:'soul',lowtide:'soul',
+  neon:'electro',voltage:'electro',synth:'electro',
+  static:'rock',rivet:'rock',wildcard:'rock',
+  orbit:'dance',glitter:'dance',discoball:'dance',
+  iron:'metal',anvil:'metal',thunder:'metal',
+}
 export function bandGenre(id:string):MusicGenre{return bandGenres[id]??'indie'}
 export function normalizeMusic(values?:Partial<MusicMix>):MusicMix{
   const total=GENRES.reduce((sum,g)=>sum+Math.max(0,Number.isFinite(values?.[g.id])?values![g.id]!:0),0)

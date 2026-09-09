@@ -60,3 +60,5 @@
 .planner-board{display:grid;grid-template-columns:300px minmax(0,1fr);gap:12px;margin:12px 0;align-items:start}.planner-board .band-palette{grid-template-columns:1fr;max-height:440px;overflow-y:auto;margin:0;padding:3px}.planner-board .show-scroll{min-height:220px}.planner-board .show-timeline{min-width:1250px}@media(max-width:780px){.planner-board{grid-template-columns:1fr}.planner-board .band-palette{grid-template-columns:repeat(2,minmax(0,1fr));max-height:250px}}
 
 .band-card,.show-booking{touch-action:none;user-select:none}
+.festival-management .band-card.unavailable{cursor:not-allowed;filter:grayscale(.8);opacity:.48;background:#293630}
+.festival-management .band-card.unavailable small{color:#f0c5a0}
