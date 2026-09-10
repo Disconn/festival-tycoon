@@ -87,7 +87,7 @@ app.innerHTML = `
           <button id="open-info">🔎 Info</button>
           <button id="open-build-menu" aria-expanded="false">🏗️ Bauen</button>
           <div class="dropdown-menu">
-            <button id="toggle-bulldoze-menu" aria-expanded="false">🚜 Abriss ▾</button>
+            <button id="toggle-bulldoze-menu" aria-expanded="false">🚜 Abriss</button>
             <div id="bulldoze-menu-panel" class="bulldoze-panel panel">
               <div class="bulldoze-panel-header panel-header">
                 <span class="panel-drag-line" aria-hidden="true"></span>
@@ -3151,10 +3151,7 @@ const bulldozeSizeButtons = Array.from(
   document.querySelectorAll<HTMLButtonElement>('[data-bulldoze-size]'),
 )
 makeDraggable(requireElement<HTMLElement>('.build-menu-header'), buildMenuPanel)
-const bulldozeMenuWasDragged = makeDraggable(
-  requireElement<HTMLElement>('.bulldoze-panel-header'),
-  bulldozeMenuPanel,
-)
+makeDraggable(requireElement<HTMLElement>('.bulldoze-panel-header'), bulldozeMenuPanel)
 
 const activateInfoIfNothingOpen = (): void => {
   if (buildMenuPanel.hidden && !bulldozeMenuPanel.classList.contains('open')) {
@@ -3197,7 +3194,6 @@ bulldozeMenuToggle.addEventListener('click', () => {
   closeBuildMenu()
   bulldozeMenuPanel.classList.add('open')
   bulldozeMenuToggle.setAttribute('aria-expanded', 'true')
-  if (!bulldozeMenuWasDragged()) positionDropdownPanel(bulldozeMenuToggle, bulldozeMenuPanel, 220)
   game.setTool('bulldoze')
 })
 requireElement<HTMLButtonElement>('[data-close-bulldoze-menu]').addEventListener('click', () => {
@@ -3214,9 +3210,6 @@ bulldozeSizeButtons.forEach((button) => {
 window.addEventListener('resize', () => {
   if (debugMenuPanel.classList.contains('open')) positionDropdownPanel(debugMenuToggle, debugMenuPanel)
   if (saveMenuPanel.classList.contains('open')) positionDropdownPanel(saveMenuToggle, saveMenuPanel)
-  if (bulldozeMenuPanel.classList.contains('open') && !bulldozeMenuWasDragged()) {
-    positionDropdownPanel(bulldozeMenuToggle, bulldozeMenuPanel, 220)
-  }
 })
 requireElement<HTMLButtonElement>('#debug-remove-cars').addEventListener(
   'click',

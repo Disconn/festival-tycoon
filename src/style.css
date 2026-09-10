@@ -347,11 +347,14 @@ button {
   white-space: normal;
 }
 
-/* Abriss (bulldoze) brush-size panel: same positioning idea as the dropdown
-   menus above (top/left set from JS), own layout since it holds a size grid
-   instead of a stacked button list. */
+/* Abriss (bulldoze) brush-size panel. Spawns at the same fixed spot as
+   .build-menu (they're mutually exclusive, so sharing a spawn point is
+   fine) instead of being anchored to its toggle button - consistent with
+   every other standardized overlay, and still draggable from there. */
 .bulldoze-panel {
   position: fixed;
+  top: var(--topbar-gap-top, 100px);
+  left: 12px;
   z-index: 30;
   display: none;
   width: 220px;
