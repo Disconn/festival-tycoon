@@ -445,7 +445,8 @@ button {
 
 .game-actions button,
 .time-controls button,
-.scenario-toggle {
+.scenario-toggle,
+.festival-management button {
   color: #ecf5f0;
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -458,7 +459,8 @@ button {
 .time-controls button:hover,
 .time-controls button.active,
 .scenario-toggle:hover,
-.scenario-toggle[aria-expanded='true'] {
+.scenario-toggle[aria-expanded='true'],
+.festival-management button:hover {
   background: #3f715b;
 }
 
@@ -2214,7 +2216,7 @@ button {
 .game-actions { display: flex; flex: 1 0 100%; gap: 6px; flex-wrap: wrap; }
 .action-group { gap: 4px; }
 .action-divider { display: none; }
-.game-actions button { padding: 5px 9px; font-size: 11px; }
+.game-actions button, .festival-management button { padding: 5px 9px; font-size: 11px; }
 .panel button {
   border-top-color: #819b8c; border-left-color: #819b8c;
   border-right-color: #1b322c; border-bottom-color: #1b322c;
@@ -2249,7 +2251,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   .topbar { gap: 5px; }
   .brand { min-width: 130px; }
   .stats { gap: 7px; font-size: 10px; flex-wrap: wrap; }
-  .game-actions button { padding: 4px 6px; font-size: 10px; }
+  .game-actions button, .festival-management button { padding: 4px 6px; font-size: 10px; }
   .build-menu { top: 125px; width: 164px; }
   .build-categories { max-height: max(60px, calc(100dvh - 575px)); }
   .crowding-panel { top: 125px; width: 144px; }
