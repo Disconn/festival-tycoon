@@ -143,14 +143,6 @@ button {
   gap: 10px;
 }
 
-.multiplayer-panel h2 {
-  margin: 0;
-  color: #a9beb5;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-}
-
 .multiplayer-panel input[type='text'] {
   width: 100%;
   padding: 7px 8px;
@@ -355,6 +347,94 @@ button {
   white-space: normal;
 }
 
+/* Abriss (bulldoze) brush-size panel: same positioning idea as the dropdown
+   menus above (top/left set from JS), own layout since it holds a size grid
+   instead of a stacked button list. */
+.bulldoze-panel {
+  position: fixed;
+  z-index: 30;
+  display: none;
+  width: 220px;
+  max-width: calc(100vw - 16px);
+  padding: 10px;
+}
+
+.bulldoze-panel.open {
+  display: block;
+}
+
+/* Shared "draggable overlay header" building blocks: a grab-able bar
+   (.panel-header) holding two dividing lines (.panel-drag-line) around a
+   centered title (.panel-header-title) and a fixed close button
+   (.panel-close-button) at the end. Used by every overlay panel that can be
+   dragged and closed (currently: Bauen, Abriss) - add both this class and
+   the panel's own unique class (needed to target it from JS) to reuse it. */
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -2px -2px 8px;
+  padding: 4px;
+  border-radius: 8px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.panel-header:active {
+  cursor: grabbing;
+}
+
+.panel-header-title {
+  flex-shrink: 0;
+  margin: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.panel-close-button {
+  flex-shrink: 0;
+  color: #ecf5f0;
+  background: rgba(255, 255, 255, 0.08);
+  /* Width/style only - .panel button (defined once, app-wide) supplies the
+     per-side bevel colors every panel button gets; a uniform border-color
+     here would out-specificity and flatten that. */
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 2px;
+  padding: 5px 9px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.panel-close-button:hover {
+  background: #3f715b;
+}
+
+.panel-drag-line {
+  flex: 1;
+  height: 2px;
+  min-width: 8px;
+  background: #233c36;
+  border-radius: 1px;
+}
+
+.bulldoze-size-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.bulldoze-size-grid button.active {
+  background: #3f715b;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.game-actions button[aria-expanded='true'] {
+  background: #3f715b;
+}
+
 .game-actions button,
 .time-controls button {
   color: #ecf5f0;
@@ -386,14 +466,6 @@ button {
   border-radius: 13px;
   overflow: visible;
   z-index: 20;
-}
-
-.build-menu h2 {
-  margin: 0 0 9px 4px;
-  color: #a9beb5;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
 }
 
 .build-categories {
@@ -2144,7 +2216,6 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   outline: 2px solid #ffd47d; outline-offset: 2px;
 }
 .build-menu { top: 100px; left: 6px; width: 190px; padding: 8px; }
-.build-menu h2 { font-size: 10px; letter-spacing: 0.12em; color: #efcf86; }
 .build-categories { max-height: max(60px, calc(100dvh - 550px)); overflow-y: auto; gap: 2px; scrollbar-color: #91aaa0 #253e35; scrollbar-width: thin; }
 .build-categories button { min-height: 30px; padding: 4px 6px; grid-template-columns: 24px 1fr 10px; font-size: 11px; }
 .build-categories span { font-size: 16px; }
@@ -2175,19 +2246,33 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   .visitor-panel, .staff-panel, .day-plan-panel, .visitor-overview-panel, .complaints-panel { top: 125px; max-height: calc(100dvh - 181px); }
 }
 
+/* Keep the expanded scenario form inside the viewport. */
+.scenario-panel { max-height: calc(100dvh - 116px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+@media (max-width: 780px) { .scenario-panel { max-height: calc(100dvh - 141px); } }
+
 /* .topbar wraps onto extra rows (and so grows taller than any of the fixed
    "top" offsets above assume) whenever its buttons don't fit on one line.
    main.ts measures the topbar's real height with a ResizeObserver and
-   writes it here; this rule sits last so it wins over every top: <fixed
-   value> above regardless of viewport width. */
+   writes it here as --topbar-gap-top; every overlay that spawns near the
+   top reads it here, so this rule must stay the LAST thing in the file
+   (or at least the last thing) that sets `top` for these selectors - it
+   needs to win over every fixed value above, including the narrow-viewport
+   overrides, regardless of how many rows the topbar currently wraps to. */
 .build-menu,
-.crowding-panel {
+.crowding-panel,
+.scenario-panel,
+.multiplayer-panel,
+.path-construction,
+.coaster-builder,
+.visitor-panel,
+.staff-panel,
+.staff-details,
+.day-plan-panel,
+.complaints-panel,
+.visitor-overview-panel,
+#toast {
   top: var(--topbar-gap-top, 100px);
 }
-
-/* Keep the expanded scenario form inside the viewport. */
-.scenario-panel { top: 100px; max-height: calc(100dvh - 116px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
-@media (max-width: 780px) { .scenario-panel { top: 125px; max-height: calc(100dvh - 141px); } }
 
 .performance-indicator {
   white-space: pre;
@@ -2229,7 +2314,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .save-slots-list article > div:last-child { display: flex; gap: 5px; flex-wrap: wrap; justify-content: end; }
 @media (max-width: 520px) { .save-slots-dialog form, .save-slots-list article { align-items: stretch; flex-direction: column; } .save-slots-list article > div:last-child { justify-content: stretch; } }
 
-.staff-details { position: fixed; right: 6px; top: 100px; width: 265px; max-height: calc(100vh - 175px); overflow: auto; z-index: 45; padding: 10px; }
+.staff-details { position: fixed; right: 6px; width: 265px; max-height: calc(100vh - 175px); overflow: auto; z-index: 45; padding: 10px; }
 .staff-details[hidden] { display: none; }
 .staff-details header { display:flex; justify-content:space-between; align-items:center; }
 .staff-details p { font-size: 12px; }

@@ -1,11 +1,9 @@
 .supply-planner { position: absolute; z-index: 24; top: auto; bottom: 64px; right: 6px; left: auto; width: 320px; max-height: calc(100dvh - 170px); padding: 12px; overflow-y: auto; font: 12px/1.5 Tahoma, Verdana, sans-serif; color: #e9ebd6; background: #203c35; border: 2px solid #829481; box-shadow: inset 1px 1px #bac3a0, 3px 4px #112823; }
 .supply-planner[hidden] { display: none; }
-.supply-planner header { display: flex; justify-content: space-between; align-items: start; }
-.supply-planner h2 { margin: 0; color: #efd18b; font-size: 20px; }
 .supply-planner small { color: #bac9b5; }
 .supply-planner p { margin: 7px 0; }
 .supply-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
-.supply-planner button { min-height: 30px; padding: 5px 8px; font: inherit; }
+.supply-planner button:not(.panel-close-button) { min-height: 30px; padding: 5px 8px; font: inherit; }
 .supply-planner button[aria-pressed=true] { background: #806e40; color: #fff2bc; border-color: #dfc480; }
 .supply-planner details { border-top: 1px solid #647c68; padding: 10px 0; }
 .supply-planner summary { cursor: pointer; font-weight: bold; color: #efd18b; }

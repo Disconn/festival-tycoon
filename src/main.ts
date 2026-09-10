@@ -1,4 +1,5 @@
 import { GENRES } from './game/musicTaste'
+import { makeDraggable } from './dragPanel'
 import { mountStageEditor } from './stageEditor'
 import { stageStats } from './game/stageDesign'
 import { mountStaffDetails } from './staffDetailsUI'
@@ -82,6 +83,32 @@ app.innerHTML = `
       <div class="game-actions">
         <div id="action-group-festival" class="action-group" aria-label="Festival"></div>
         <div class="action-divider"></div>
+        <div id="action-group-build" class="action-group" aria-label="Bauwerkzeuge">
+          <button id="open-info">🔎 Info</button>
+          <button id="open-build-menu" aria-expanded="false">🏗️ Bauen</button>
+          <div class="dropdown-menu">
+            <button id="toggle-bulldoze-menu" aria-expanded="false">🚜 Abriss ▾</button>
+            <div id="bulldoze-menu-panel" class="bulldoze-panel panel">
+              <div class="bulldoze-panel-header panel-header">
+                <span class="panel-drag-line" aria-hidden="true"></span>
+                <h3 class="panel-header-title">Abriss-Fläche</h3>
+                <span class="panel-drag-line" aria-hidden="true"></span>
+                <button data-close-bulldoze-menu class="panel-close-button" aria-label="Abriss schließen">×</button>
+              </div>
+              <div class="bulldoze-size-grid">
+                <button data-bulldoze-size="1" class="active">1×1</button>
+                <button data-bulldoze-size="2">2×2</button>
+                <button data-bulldoze-size="3">3×3</button>
+                <button data-bulldoze-size="4">4×4</button>
+                <button data-bulldoze-size="5">5×5</button>
+                <button data-bulldoze-size="6">6×6</button>
+                <button data-bulldoze-size="7">7×7</button>
+                <button data-bulldoze-size="8">8×8</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="action-divider"></div>
         <div id="action-group-views" class="action-group" aria-label="Ansichten">
           <button id="open-logistics">🚚 Logistik</button>
           <button id="open-day-plan">📅 Tagesplan</button>
@@ -158,7 +185,12 @@ app.innerHTML = `
       <button id="start-scenario" type="button">Neues Szenario starten</button>
     </aside>
     <aside id="multiplayer-panel" class="multiplayer-panel panel" hidden>
-      <h2>Mehrspieler</h2>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Mehrspieler</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-multiplayer" class="panel-close-button" aria-label="Mehrspieler schließen">×</button>
+      </div>
       <p class="scenario-hint">
         Der Host rechnet die Simulation. Andere Spieler bauen im selben Park mit.
       </p>
@@ -185,8 +217,13 @@ app.innerHTML = `
         <button id="multiplayer-leave" type="button">Trennen</button>
       </div>
     </aside>
-    <aside class="build-menu panel" aria-label="Bauwerkzeuge">
-      <h2>Bauen</h2>
+    <aside id="build-menu" class="build-menu panel" aria-label="Bauwerkzeuge" hidden>
+      <div class="build-menu-header panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Bauen</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button data-close-build-menu class="panel-close-button" aria-label="Bauen schließen">×</button>
+      </div>
       <div id="path-tools" class="tools"></div>
       <button id="toggle-path-editor" class="path-editor-launch">🛠 Weg-Editor</button>
       <div class="tool-divider"></div>
@@ -278,7 +315,6 @@ app.innerHTML = `
       </div>
       <div class="tool-divider"></div>
       <button class="tool" data-tool="bulldoze"><span>🚜</span><em>Abriss</em><kbd>8</kbd></button>
-      <button class="tool" data-tool="inspect"><span>🔎</span><em>Info</em><kbd>9</kbd></button>
     </aside>
     <aside id="path-construction" class="path-construction panel" aria-label="Wege-Editor">
       <div class="construction-title">
@@ -488,10 +524,11 @@ app.innerHTML = `
       </section>
     </aside>
     <aside id="day-plan-panel" class="day-plan-panel panel" aria-label="Tagesplanung">
-      <div class="visitor-title">
-        <span class="visitor-avatar">🗓️</span>
-        <div><small>Festivalbetrieb</small><strong>Tagesplan</strong></div>
-        <button id="close-day-plan" aria-label="Tagesplan schließen">×</button>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Tagesplan</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-day-plan" class="panel-close-button" aria-label="Tagesplan schließen">×</button>
       </div>
       <div class="festival-cycle-controls">
         <label>Vorlauf <input id="festival-lead-days" type="number" min="0" max="14" /></label>
@@ -513,20 +550,22 @@ app.innerHTML = `
       <p id="day-plan-status" class="day-plan-status"></p>
     </aside>
     <aside id="complaints-panel" class="complaints-panel panel" aria-label="Beschwerdemanagement">
-      <div class="visitor-title">
-        <span class="visitor-avatar">📣</span>
-        <div><small>Gästeservice</small><strong>Beschwerden</strong></div>
-        <button id="close-complaints" aria-label="Beschwerden schließen">×</button>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Beschwerden</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-complaints" class="panel-close-button" aria-label="Beschwerden schließen">×</button>
       </div>
       <p id="complaints-summary" class="complaints-summary"></p>
       <div class="complaints-head"><span>Thema</span><b>Aktuell</b><b>Letztes Festival</b></div>
       <div id="complaints-list" class="complaints-list"></div>
     </aside>
     <aside id="visitor-overview-panel" class="visitor-overview-panel panel" aria-label="Besucherübersicht">
-      <div class="visitor-title">
-        <span class="visitor-avatar">👥</span>
-        <div><small>Parkverwaltung</small><strong>Alle Besucher</strong></div>
-        <button id="close-visitor-overview" aria-label="Besucherübersicht schließen">×</button>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Alle Besucher</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-visitor-overview" class="panel-close-button" aria-label="Besucherübersicht schließen">×</button>
       </div>
       <div class="visitor-overview-controls">
         <input id="visitor-thought-filter" type="search" placeholder="Gedanken durchsuchen …" />
@@ -558,18 +597,20 @@ app.innerHTML = `
       </div>
     </aside>
     <aside id="staff-panel" class="staff-panel panel" aria-label="Personalverwaltung">
-      <div class="visitor-title">
-        <span class="visitor-avatar">👷</span>
-        <div><small>Verwaltung</small><strong>Eingestelltes Personal</strong></div>
-        <button id="close-staff" aria-label="Personal schließen">×</button>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Eingestelltes Personal</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-staff" class="panel-close-button" aria-label="Personal schließen">×</button>
       </div>
       <div id="staff-list" class="staff-list"></div>
     </aside>
     <aside id="logistics-panel" class="day-plan-panel panel logistics-panel" aria-label="Logistikverwaltung">
-      <div class="visitor-title">
-        <span class="visitor-avatar">🚚</span>
-        <div><small>Verwaltung</small><strong>Transport & Logistik</strong></div>
-        <button id="close-logistics" aria-label="Logistik schließen">×</button>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Transport & Logistik</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-logistics" class="panel-close-button" aria-label="Logistik schließen">×</button>
       </div>
       <div class="logistics-management-tabs">
         <button data-logistics-tab="overview" class="active">Übersicht</button>
@@ -840,6 +881,9 @@ const complaintsPanel = requireElement<HTMLElement>('#complaints-panel')
 const complaintsSummary = requireElement<HTMLElement>('#complaints-summary')
 const complaintsList = requireElement<HTMLElement>('#complaints-list')
 const logisticsPanel = requireElement<HTMLElement>('#logistics-panel')
+for (const panel of [staffPanel, visitorOverviewPanel, dayPlanPanel, complaintsPanel, logisticsPanel]) {
+  makeDraggable(panel.querySelector<HTMLElement>('.panel-header')!, panel)
+}
 const logisticsOverview = requireElement<HTMLElement>('#logistics-overview')
 const logisticsRoutes = requireElement<HTMLElement>('#logistics-routes')
 const busLineDepot = requireElement<HTMLSelectElement>('#bus-line-depot')
@@ -912,6 +956,7 @@ const hourOptions = Array.from(
 dayEntryHour.innerHTML = hourOptions
 dayExitHour.innerHTML = hourOptions
 let securityItemsFingerprint = ''
+let bulldozeBrushSize = 1
 let pathEditorActive = false
 let pathAnchor: PathAnchor | null = null
 let pathDirection = 0
@@ -1635,10 +1680,22 @@ function handleCellClick(cell: CellPosition): void {
     return
   }
 
+  if (tool === 'bulldoze') {
+    const result =
+      bulldozeBrushSize > 1
+        ? game.bulldozeArea(
+            createCampingArea(cell, {
+              x: cell.x + bulldozeBrushSize - 1,
+              z: cell.z + bulldozeBrushSize - 1,
+            }),
+          )
+        : game.bulldoze(cell.x, cell.z)
+    showToast(result.message, !result.ok)
+    return
+  }
+
   const result =
-    tool === 'bulldoze'
-      ? game.bulldoze(cell.x, cell.z)
-      : tool === 'camping'
+    tool === 'camping'
         ? game.designateCampingCell(cell.x, cell.z)
         : tool === 'medicalArea'
           ? game.designateMedicalArea([cell])
@@ -3046,9 +3103,9 @@ const saveMenuPanel =
 // the panel can't rely on a static CSS anchor (it would end up far from
 // whichever line the button currently sits on). Position it from the
 // button's live on-screen rect instead, clamped to stay fully in view.
-function positionDropdownPanel(button: HTMLElement, panel: HTMLElement): void {
+function positionDropdownPanel(button: HTMLElement, panel: HTMLElement, panelWidth = 250): void {
   const margin = 8
-  const width = Math.min(250, window.innerWidth - margin * 2)
+  const width = Math.min(panelWidth, window.innerWidth - margin * 2)
   const rect = button.getBoundingClientRect()
   const left = Math.min(
     Math.max(rect.right - width, margin),
@@ -3057,6 +3114,7 @@ function positionDropdownPanel(button: HTMLElement, panel: HTMLElement): void {
   panel.style.left = `${left}px`
   panel.style.top = `${rect.bottom + margin}px`
 }
+
 const closeSaveMenu = (): void => {
   saveMenuPanel.classList.remove('open')
   saveMenuToggle.setAttribute('aria-expanded', 'false')
@@ -3081,9 +3139,84 @@ saveMenuPanel.addEventListener('click', (event) => {
   if (!(event.target as HTMLElement).closest('button')) return
   closeSaveMenu()
 })
+
+// Build menu and bulldoze menu are mutually exclusive; whenever neither is
+// open, the active tool falls back to "Info" (inspect).
+const infoButton = requireElement<HTMLButtonElement>('#open-info')
+const buildMenuToggle = requireElement<HTMLButtonElement>('#open-build-menu')
+const buildMenuPanel = requireElement<HTMLElement>('#build-menu')
+const bulldozeMenuToggle = requireElement<HTMLButtonElement>('#toggle-bulldoze-menu')
+const bulldozeMenuPanel = requireElement<HTMLDivElement>('#bulldoze-menu-panel')
+const bulldozeSizeButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>('[data-bulldoze-size]'),
+)
+makeDraggable(requireElement<HTMLElement>('.build-menu-header'), buildMenuPanel)
+const bulldozeMenuWasDragged = makeDraggable(
+  requireElement<HTMLElement>('.bulldoze-panel-header'),
+  bulldozeMenuPanel,
+)
+
+const activateInfoIfNothingOpen = (): void => {
+  if (buildMenuPanel.hidden && !bulldozeMenuPanel.classList.contains('open')) {
+    game.setTool('inspect')
+  }
+}
+const closeBuildMenu = (): void => {
+  buildMenuPanel.hidden = true
+  buildMenuToggle.setAttribute('aria-expanded', 'false')
+}
+const closeBulldozeMenu = (): void => {
+  bulldozeMenuPanel.classList.remove('open')
+  bulldozeMenuToggle.setAttribute('aria-expanded', 'false')
+}
+infoButton.addEventListener('click', () => {
+  closeBuildMenu()
+  closeBulldozeMenu()
+  game.setTool('inspect')
+})
+buildMenuToggle.addEventListener('click', () => {
+  if (!buildMenuPanel.hidden) {
+    closeBuildMenu()
+    activateInfoIfNothingOpen()
+    return
+  }
+  closeBulldozeMenu()
+  buildMenuPanel.hidden = false
+  buildMenuToggle.setAttribute('aria-expanded', 'true')
+})
+requireElement<HTMLButtonElement>('[data-close-build-menu]').addEventListener('click', () => {
+  closeBuildMenu()
+  activateInfoIfNothingOpen()
+})
+bulldozeMenuToggle.addEventListener('click', () => {
+  if (bulldozeMenuPanel.classList.contains('open')) {
+    closeBulldozeMenu()
+    activateInfoIfNothingOpen()
+    return
+  }
+  closeBuildMenu()
+  bulldozeMenuPanel.classList.add('open')
+  bulldozeMenuToggle.setAttribute('aria-expanded', 'true')
+  if (!bulldozeMenuWasDragged()) positionDropdownPanel(bulldozeMenuToggle, bulldozeMenuPanel, 220)
+  game.setTool('bulldoze')
+})
+requireElement<HTMLButtonElement>('[data-close-bulldoze-menu]').addEventListener('click', () => {
+  closeBulldozeMenu()
+  activateInfoIfNothingOpen()
+})
+bulldozeSizeButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    bulldozeBrushSize = Number(button.dataset.bulldozeSize)
+    bulldozeSizeButtons.forEach((b) => b.classList.toggle('active', b === button))
+    game.setTool('bulldoze')
+  })
+})
 window.addEventListener('resize', () => {
   if (debugMenuPanel.classList.contains('open')) positionDropdownPanel(debugMenuToggle, debugMenuPanel)
   if (saveMenuPanel.classList.contains('open')) positionDropdownPanel(saveMenuToggle, saveMenuPanel)
+  if (bulldozeMenuPanel.classList.contains('open') && !bulldozeMenuWasDragged()) {
+    positionDropdownPanel(bulldozeMenuToggle, bulldozeMenuPanel, 220)
+  }
 })
 requireElement<HTMLButtonElement>('#debug-remove-cars').addEventListener(
   'click',
@@ -3213,6 +3346,10 @@ if (joinFromUrl) {
 multiplayerToggle.addEventListener('click', () => {
   setMultiplayerPanelOpen(multiplayerPanel.hasAttribute('hidden'))
 })
+requireElement<HTMLButtonElement>('#close-multiplayer').addEventListener('click', () => {
+  setMultiplayerPanelOpen(false)
+})
+makeDraggable(multiplayerPanel.querySelector<HTMLElement>('.panel-header')!, multiplayerPanel)
 multiplayerHostButton.addEventListener('click', () => {
   multiplayer.host(readMultiplayerName())
   showToast('Verbinde als Host…')

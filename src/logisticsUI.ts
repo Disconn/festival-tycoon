@@ -8,6 +8,7 @@ import type { GroundWork } from './game/ground'
 import { SUPPLIES } from './game/festivalManagement'
 import type { FestivalAction, Supply } from './game/festivalManagement'
 import type { Point } from './game/supplyChain'
+import { makeDraggable } from './dragPanel'
 import './logistics.css'
 
 const escape = (v: string) => v.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
@@ -19,7 +20,7 @@ export function mountLogisticsUI(getGame: () => GameState, view: WorldView, toas
   document.querySelector('#action-group-views')!.append(button)
   const panel = document.createElement('aside'); panel.className = 'supply-planner panel'; panel.hidden = true
   panel.setAttribute('aria-label', 'Logistik und Untergrund planen')
-  panel.innerHTML = `<header><div><small>WEGE · WAREN · UNTERGRUND</small><h2>Logistik planen</h2></div><button data-close aria-label="Logistikansicht schließen">×</button></header>
+  panel.innerHTML = `<header class="panel-header"><span class="panel-drag-line" aria-hidden="true"></span><h2 class="panel-header-title">Logistik planen</h2><span class="panel-drag-line" aria-hidden="true"></span><button data-close class="panel-close-button" aria-label="Logistikansicht schließen">×</button></header>
     <p>Besucher sind ausgeblendet. Gebäude und Wege baut ihr weiterhin links. Hier findet ihr Bodenarbeiten und Transportplanung. Die Planung verändert eure normale Bauauswahl nicht.</p>
     <nav class="supply-tools"><button data-tool="inspect" aria-pressed="false">Feld prüfen</button><button data-tool="delivery">Anlieferungsplatz · 400 €</button><button data-tool="depot">Depot · 400 €</button><button data-tool="staffGate">Personaltor · 80 €</button>${Object.entries(GROUND_WORK).map(([key, work]) => `<button data-tool="${key}">${work.name} · ${work.cost} €</button>`).join('')}</nav>
     <p data-hint aria-live="polite">Links normal bauen oder hier eine Logistik-Zusatzoption wählen.</p><div data-cell class="supply-card">Bodenfarben: <span style="color:#b57a59">■ Lehm</span> · <span style="color:#a3a280">■ Kies</span> · <span style="color:#b5b563">■ Feld</span><br>Türkis: entwässert · Grau: gepflastert</div>
@@ -32,6 +33,7 @@ export function mountLogisticsUI(getGame: () => GameState, view: WorldView, toas
       <form data-route><label>Aufgabe<select name="kind"><option value="food">Essen zum Imbiss</option><option value="drinks">Getränke zur Bar</option><option value="water">Trinkwasser zum WC</option></select></label><label>Ziel<select name="target" required></select></label><label>Zielbestand<input name="minimum" type="number" min="1" max="200" value="40" required></label><button type="button" data-tool="waypoint">Wegpunkte auf Karte setzen</button><span data-points>Direkter erreichbarer Weg</span><button type="button" data-clear>Wegpunkte löschen</button><button>Träger einstellen · 120 €</button></form>
     </details><div data-status class="supply-card" aria-live="polite"></div><div data-routes></div><div data-deliveries></div>`
   document.querySelector('.game-shell')!.append(panel)
+  makeDraggable(panel.querySelector<HTMLElement>('.panel-header')!, panel)
   const q = <T extends Element = HTMLElement>(selector: string) => panel.querySelector<T>(selector)!
   const put = (selector: string, html: string) => { const el = q(selector); if (el.innerHTML !== html) el.innerHTML = html }
   const depotId = () => q<HTMLSelectElement>('[name=depot]').value
