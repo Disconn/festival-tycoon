@@ -7,7 +7,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { COMPONENTS, BRANDS, PHASE_NAMES, defaultStageDesign, stageDesignIssue, stageStats, removeStagePart, type StageDesign, type StagePart } from './game/stageDesign'
 import { createStageModel, animateStageModel, disposeStageModel } from './view/stageModel'
 import type { GameState } from './game/GameState'
-import { makeDraggable } from './dragPanel'
+import { makeDraggable, makeResizable } from './dragPanel'
 import './stageEditor.css'
 const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!))
 export function mountStageEditor(getGame:()=>GameState,toast:(s:string,error?:boolean)=>void){
@@ -20,6 +20,7 @@ export function mountStageEditor(getGame:()=>GameState,toast:(s:string,error?:bo
   <footer><span data-cost></span><button data-save>Vorlage speichern</button><button data-build>Für Bühnenbau verwenden</button><button data-apply>Bühne umbauen</button></footer>`
   document.querySelector('.game-shell')!.append(panel)
   makeDraggable(panel.querySelector<HTMLElement>('.panel-header')!, panel)
+  makeResizable(panel)
   const templateKey='festival-stage-templates-v1'
   const library=():StageDesign[]=>{
     let local:StageDesign[]=[]

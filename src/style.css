@@ -100,18 +100,7 @@ button {
 
 .scenario-toggle {
   margin-left: 4px;
-  color: #ecf5f0;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 7px;
-  padding: 6px 9px;
-  cursor: pointer;
   white-space: nowrap;
-}
-
-.scenario-toggle:hover,
-.scenario-toggle[aria-expanded='true'] {
-  background: #3f715b;
 }
 
 .scenario-panel {
@@ -218,14 +207,6 @@ button {
 
 #multiplayer-leave {
   background: rgba(176, 61, 51, 0.38);
-}
-
-.scenario-panel h2 {
-  margin: 0;
-  color: #a9beb5;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
 }
 
 .scenario-hint {
@@ -415,6 +396,30 @@ button {
   background: #3f715b;
 }
 
+/* Bottom-right resize grip, created and attached by makeResizable() in
+   dragPanel.ts - shared by every resizable overlay panel. Drawn as three
+   short diagonal lines (the conventional resize-corner glyph) via a
+   repeating gradient instead of an image/icon font. */
+.panel-resize-grip {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(
+    135deg,
+    transparent 0 3px,
+    rgba(255, 255, 255, 0.45) 3px 4px,
+    transparent 4px 6px,
+    rgba(255, 255, 255, 0.45) 6px 7px,
+    transparent 7px 9px,
+    rgba(255, 255, 255, 0.45) 9px 10px,
+    transparent 10px 100%
+  );
+}
+
 .panel-drag-line {
   flex: 1;
   height: 2px;
@@ -439,7 +444,8 @@ button {
 }
 
 .game-actions button,
-.time-controls button {
+.time-controls button,
+.scenario-toggle {
   color: #ecf5f0;
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -450,7 +456,9 @@ button {
 
 .game-actions button:hover,
 .time-controls button:hover,
-.time-controls button.active {
+.time-controls button.active,
+.scenario-toggle:hover,
+.scenario-toggle[aria-expanded='true'] {
   background: #3f715b;
 }
 

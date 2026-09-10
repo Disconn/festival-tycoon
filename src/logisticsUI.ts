@@ -8,7 +8,7 @@ import type { GroundWork } from './game/ground'
 import { SUPPLIES } from './game/festivalManagement'
 import type { FestivalAction, Supply } from './game/festivalManagement'
 import type { Point } from './game/supplyChain'
-import { makeDraggable } from './dragPanel'
+import { makeDraggable, makeResizable } from './dragPanel'
 import './logistics.css'
 
 const escape = (v: string) => v.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
@@ -34,6 +34,7 @@ export function mountLogisticsUI(getGame: () => GameState, view: WorldView, toas
     </details><div data-status class="supply-card" aria-live="polite"></div><div data-routes></div><div data-deliveries></div>`
   document.querySelector('.game-shell')!.append(panel)
   makeDraggable(panel.querySelector<HTMLElement>('.panel-header')!, panel)
+  makeResizable(panel)
   const q = <T extends Element = HTMLElement>(selector: string) => panel.querySelector<T>(selector)!
   const put = (selector: string, html: string) => { const el = q(selector); if (el.innerHTML !== html) el.innerHTML = html }
   const depotId = () => q<HTMLSelectElement>('[name=depot]').value

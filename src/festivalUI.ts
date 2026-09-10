@@ -1,6 +1,6 @@
 import { mountMusicPlanner, musicOverview } from './musicPlanner'
 import type { GameState, GameSnapshot } from './game/GameState'
-import { makeDraggable } from './dragPanel'
+import { makeDraggable, makeResizable } from './dragPanel'
 import './festival.css'
 import { AUDIENCES, AUDIENCE_NAMES, SUPPLIES, UPGRADES, WEATHER_NAMES, audienceMix, forecast, festivalTime } from './game/festivalManagement'
 import type { FestivalAction, Supply, Upgrade } from './game/festivalManagement'
@@ -30,6 +30,7 @@ export function mountFestivalUI(getGame: () => GameState, toast: (text: string, 
     <section data-pane="reports" hidden><div data-reputation class="festival-grid"></div><p>Musikruf öffnet den Zugang zu größeren Bands. Atmosphäre, Komfort und Organisation beeinflussen die erwarteten Zielgruppen und die Nachfrage. Die Tagesbilanz enthält sämtliche Einnahmen und Ausgaben des Spiels.</p><div data-reports></div></section>`
   shell.append(panel)
   makeDraggable(panel.querySelector<HTMLElement>('.panel-header')!, panel)
+  makeResizable(panel)
   let lastRender = -1, reportCount = 0
   const execute = (action: FestivalAction) => { const result = getGame().manageFestival(action); if (result.message !== 'Befehl eingeplant') toast(result.message, !result.ok); render(getGame().snapshot, true) }
   const musicPlanner=mountMusicPlanner(panel.querySelector('[data-music-planner]')!,()=>getGame().snapshot,execute,toast)

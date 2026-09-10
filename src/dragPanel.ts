@@ -22,7 +22,7 @@ export function makeDraggable(handle: HTMLElement, panel: HTMLElement): () => bo
     panel.style.transform = 'none'
     const offsetX = event.clientX - rect.left
     const offsetY = event.clientY - rect.top
-    handle.setPointerCapture(event.pointerId)
+    try { handle.setPointerCapture(event.pointerId) } catch { /* e.g. no active pointer session */ }
     const onMove = (moveEvent: PointerEvent): void => {
       moved = true
       const margin = 4
@@ -39,4 +39,51 @@ export function makeDraggable(handle: HTMLElement, panel: HTMLElement): () => bo
     handle.addEventListener('pointerup', onUp)
   })
   return () => moved
+}
+
+// Adds a grab-able grip to a panel's bottom-right corner so the user can
+// resize it. Creates the grip itself (no markup changes needed per panel).
+// Like makeDraggable, pins the panel to plain left/top/width/height and
+// clears right/bottom/transform on the first grab so a panel that was
+// centered or sized via `inset`/max-height doesn't jump or get immediately
+// re-clamped once a manual size is set.
+export function makeResizable(panel: HTMLElement): void {
+  const grip = document.createElement('span')
+  grip.className = 'panel-resize-grip'
+  grip.setAttribute('aria-hidden', 'true')
+  panel.append(grip)
+  grip.addEventListener('pointerdown', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const rect = panel.getBoundingClientRect()
+    panel.style.left = `${rect.left}px`
+    panel.style.top = `${rect.top}px`
+    panel.style.right = 'auto'
+    panel.style.bottom = 'auto'
+    panel.style.transform = 'none'
+    panel.style.maxWidth = 'none'
+    panel.style.maxHeight = 'none'
+    panel.style.overflow = 'auto'
+    const startWidth = rect.width
+    const startHeight = rect.height
+    const startX = event.clientX
+    const startY = event.clientY
+    try { grip.setPointerCapture(event.pointerId) } catch { /* e.g. no active pointer session */ }
+    const onMove = (moveEvent: PointerEvent): void => {
+      const minWidth = 200
+      const minHeight = 120
+      const maxWidth = Math.max(minWidth, window.innerWidth - rect.left - 4)
+      const maxHeight = Math.max(minHeight, window.innerHeight - rect.top - 4)
+      const width = Math.min(Math.max(startWidth + (moveEvent.clientX - startX), minWidth), maxWidth)
+      const height = Math.min(Math.max(startHeight + (moveEvent.clientY - startY), minHeight), maxHeight)
+      panel.style.width = `${width}px`
+      panel.style.height = `${height}px`
+    }
+    const onUp = (): void => {
+      grip.removeEventListener('pointermove', onMove)
+      grip.removeEventListener('pointerup', onUp)
+    }
+    grip.addEventListener('pointermove', onMove)
+    grip.addEventListener('pointerup', onUp)
+  })
 }

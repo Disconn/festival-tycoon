@@ -1,5 +1,5 @@
 import { GENRES } from './game/musicTaste'
-import { makeDraggable } from './dragPanel'
+import { makeDraggable, makeResizable } from './dragPanel'
 import { mountStageEditor } from './stageEditor'
 import { stageStats } from './game/stageDesign'
 import { mountStaffDetails } from './staffDetailsUI'
@@ -70,7 +70,7 @@ app.innerHTML = `
       <div class="brand">
         <span class="brand-mark">F</span>
         <div><strong>Festival Tycoon</strong><small>Prototype 0.1</small></div>
-        <button id="toggle-scenario" class="scenario-toggle" aria-expanded="false">Szenario ▾</button>
+        <button id="toggle-scenario" class="scenario-toggle" aria-expanded="false">⚙️ Szenario</button>
   </div>
       <div class="stats">
         <span>💰 <strong id="money">0 €</strong></span>
@@ -144,7 +144,12 @@ app.innerHTML = `
       </div>
     </header>
     <aside id="scenario-panel" class="scenario-panel panel" hidden>
-      <h2>Szenario</h2>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Szenario</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-scenario" class="panel-close-button" aria-label="Szenario schließen">×</button>
+      </div>
       <p class="scenario-hint">Diese Werte gelten für ein neues Spiel und werden mitgespeichert.</p>
       <label class="scenario-field"><span>Umgebung</span><select id="scenario-environment">${Object.entries(ENVIRONMENTS).map(([id, e]) => `<option value="${id}">${e.name}</option>`).join('')}</select></label>
       <p id="scenario-ground-details" class="scenario-hint"></p>
@@ -883,6 +888,7 @@ const complaintsList = requireElement<HTMLElement>('#complaints-list')
 const logisticsPanel = requireElement<HTMLElement>('#logistics-panel')
 for (const panel of [staffPanel, visitorOverviewPanel, dayPlanPanel, complaintsPanel, logisticsPanel]) {
   makeDraggable(panel.querySelector<HTMLElement>('.panel-header')!, panel)
+  makeResizable(panel)
 }
 const logisticsOverview = requireElement<HTMLElement>('#logistics-overview')
 const logisticsRoutes = requireElement<HTMLElement>('#logistics-routes')
@@ -3151,7 +3157,9 @@ const bulldozeSizeButtons = Array.from(
   document.querySelectorAll<HTMLButtonElement>('[data-bulldoze-size]'),
 )
 makeDraggable(requireElement<HTMLElement>('.build-menu-header'), buildMenuPanel)
+makeResizable(buildMenuPanel)
 makeDraggable(requireElement<HTMLElement>('.bulldoze-panel-header'), bulldozeMenuPanel)
+makeResizable(bulldozeMenuPanel)
 
 const activateInfoIfNothingOpen = (): void => {
   if (buildMenuPanel.hidden && !bulldozeMenuPanel.classList.contains('open')) {
@@ -3343,6 +3351,7 @@ requireElement<HTMLButtonElement>('#close-multiplayer').addEventListener('click'
   setMultiplayerPanelOpen(false)
 })
 makeDraggable(multiplayerPanel.querySelector<HTMLElement>('.panel-header')!, multiplayerPanel)
+makeResizable(multiplayerPanel)
 multiplayerHostButton.addEventListener('click', () => {
   multiplayer.host(readMultiplayerName())
   showToast('Verbinde als Host…')
@@ -3384,6 +3393,11 @@ multiplayerCopyButton.addEventListener('click', async () => {
 scenarioToggle.addEventListener('click', () => {
   setScenarioPanelOpen(scenarioPanel.hasAttribute('hidden'))
 })
+requireElement<HTMLButtonElement>('#close-scenario').addEventListener('click', () => {
+  setScenarioPanelOpen(false)
+})
+makeDraggable(scenarioPanel.querySelector<HTMLElement>('.panel-header')!, scenarioPanel)
+makeResizable(scenarioPanel)
 requireElement<HTMLButtonElement>('#start-scenario').addEventListener(
   'click',
   () => {
