@@ -6,14 +6,23 @@
   scrollbar-color: #9bb499 #294238; scrollbar-width: thin;
 }
 .festival-chrome { position: sticky; top: -18px; z-index: 2; padding-top: 10px; background: #344d48; border-bottom: 1px solid #71846d; }
-/* Every festival-management button gets this green action look, except the
-   standardized .panel-close-button (shared by every draggable overlay). */
-.festival-management button:not(.panel-close-button) { background: #486952; color: #f2f1d9; padding: 8px 12px; border: 1px solid #8fab92; cursor: pointer; }
-.festival-management button:not(.panel-close-button):hover { background: #577e60; }
+/* Every festival-management button uses the same dark, translucent button
+   look as the rest of the app (.game-actions button / .panel-close-button /
+   .scenario-toggle), except the standardized .panel-close-button itself
+   (shared by every draggable overlay) which already carries it. */
+.festival-management button:not(.panel-close-button) {
+  color: #ecf5f0;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.festival-management button:not(.panel-close-button):hover { background: #3f715b; }
 .festival-management button:disabled { opacity: .45; cursor: default; }
 .festival-status { display: flex; justify-content: space-between; gap: 12px; background: #203a31; padding: 10px; border-left: 3px solid #e6bd6b; }
 .festival-tabs { display: flex; gap: 5px; flex-wrap: wrap; margin: 14px 0; }
-.festival-tabs button[aria-pressed=true] { color: #20382b; background: #e6c884; border-color: #fae3b4; }
+.festival-tabs button[aria-pressed=true] { background: #3f715b; border-color: rgba(255, 255, 255, 0.25); }
 .festival-management p { line-height: 1.6; color: #c3d3c6; }
 .festival-management h3 { font-size: 14px; margin: 0 0 10px; }
 .festival-intro { padding: 18px; margin: 12px 0; background: linear-gradient(110deg, #243d34, #45604a); border: 1px solid #627e65; }
