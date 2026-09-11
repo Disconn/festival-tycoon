@@ -63,11 +63,20 @@ export function mountStageEditor(getGame:()=>GameState,toast:(s:string,error?:bo
     controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,1,0);controls.minDistance=5;controls.maxDistance=140;controls.maxPolarAngle=Math.PI*.48;controls.enableDamping=true;controls.mouseButtons.RIGHT=null
     scene.add(new AmbientLight(0xffffff,1));const sun=new DirectionalLight(0xffeddb,1.8);sun.position.set(4,10,8);scene.add(sun);const grid=new GridHelper(40,40,0x718197,0x344456);grid.position.y=-.01;scene.add(grid)
     let down={x:0,y:0}
+    const touchIds=new Set<number>();let cameraGesture=false
+    renderer.domElement.addEventListener('pointerdown',e=>{
+      if(e.pointerType!=='touch')return
+      touchIds.add(e.pointerId);if(touchIds.size===1)cameraGesture=false
+      if(touchIds.size>1)cameraGesture=true
+    })
     renderer.domElement.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY}})
+    renderer.domElement.addEventListener('pointercancel',e=>{touchIds.delete(e.pointerId);cameraGesture=true})
     renderer.domElement.addEventListener('pointermove',e=>{if(e.buttons&&Math.hypot(e.clientX-down.x,e.clientY-down.y)>5){if(ghost)ghost.visible=false;return}updateHover({x:e.clientX,y:e.clientY,alt:e.altKey})})
     renderer.domElement.addEventListener('pointerleave',()=>{pointer=null;if(ghost)ghost.visible=false})
     renderer.domElement.addEventListener('contextmenu',e=>{e.preventDefault();rotate(1)})
     renderer.domElement.addEventListener('pointerup',e=>{
+      touchIds.delete(e.pointerId)
+      if(e.pointerType==='touch'&&cameraGesture)return
       if(e.button!==0||Math.hypot(e.clientX-down.x,e.clientY-down.y)>5)return
       updateHover({x:e.clientX,y:e.clientY,alt:e.altKey});hideQuality()
       if(audienceMode){

@@ -55,6 +55,8 @@ import {
 import { WorldView } from './view/WorldView'
 import type { CellPosition, PathAnchor } from './view/WorldView'
 import { isTextEntryTarget } from './uiFocus'
+import { mountMobileUI } from './mobileUI'
+import { mountAppInstall } from './appInstall'
 
 function requireElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
@@ -4081,6 +4083,20 @@ window.addEventListener('keydown', (event) => {
 })
 
 bindGameState(game)
+mountAppInstall()
+
+mountMobileUI({
+  panMode: enabled => { view.touchPanMode = enabled },
+  rotateCamera: direction => {
+    view.rotate(direction)
+    cameraQuarter = (cameraQuarter + direction + 4) % 4
+    updatePathEditor()
+    updateCoasterBuilder()
+  },
+  rotateBuilding: () => { if (pathEditorActive) rotatePathDirection(1); else game.rotateBuild() },
+  zoom: factor => view.zoomBy(factor),
+  elevation: delta => { if (pathEditorActive) setPathSlope(pathSlope + delta); else game.adjustBuildElevation(delta) },
+})
 
 const performanceIndicator = document.createElement('div')
 const versionLabel = `v${__APP_VERSION__} · Build ${__BUILD_ID__} UTC`

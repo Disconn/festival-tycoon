@@ -1,4 +1,5 @@
 import { updateStageBand } from './stageBand'
+import { bindTouchCamera } from './touchCamera'
 import { stageSiteIssue } from '../game/stageSite'
 import { createStageModel, animateStageModel, updateStageLightPool } from './stageModel'
 import { stagePhase, stageSize, occupiesBuildingCell } from '../game/stageDesign'
@@ -2287,6 +2288,21 @@ export class WorldView {
   }
 
   private bindEvents(): void {
+    bindTouchCamera(this.canvas, {
+      pan: (x, y) => this.panCamera(x, y),
+      zoom: factor => this.zoomBy(factor),
+      panWithOneFinger: () => this.touchPanMode || (this.currentSnapshot?.selectedTool === 'inspect' && !this.groundAreaHandler),
+      cancelBuild: () => {
+        this.groundAreaStart = null
+        this.groundAreaEndKey = ''
+        this.leftPointerDown = false
+        this.painting = false
+        this.dragging = false
+        this.pointerDownCell = null
+        this.lastPaintCell = null
+        this.setPathDragPreview([], 0)
+      },
+    })
     this.canvas.addEventListener('contextmenu', (event) => event.preventDefault())
     this.canvas.addEventListener('pointerdown', (event) => {
       this.groundAreaCancelled = false
@@ -2300,7 +2316,7 @@ export class WorldView {
       this.lastPointer.set(event.clientX, event.clientY)
       this.pointerDown.copy(this.lastPointer)
       this.canvas.setPointerCapture(event.pointerId)
-      if (event.button === 0 && this.groundAreaHandler && this.hoveredCell) {
+      if (event.button === 0 && !(event.pointerType === 'touch' && this.touchPanMode) && this.groundAreaHandler && this.hoveredCell) {
         this.groundAreaStart = { ...this.hoveredCell }; this.groundAreaEndKey = ''; this.updateGroundAreaPreview()
       }
     })
@@ -2314,7 +2330,7 @@ export class WorldView {
         return
       }
       const moved = this.pointerDown.distanceTo(new Vector2(event.clientX, event.clientY))
-      if (event.button === 0 && moved < 5 && !this.painting) {
+      if (event.button === 0 && moved < 5 && !this.painting && !(event.pointerType === 'touch' && this.touchPanMode)) {
         this.setRayFromPointer(event)
         const staffHit = this.raycaster.intersectObjects([...(this.staffView.group.visible?this.staffView.group.children:[]),...this.supplyChainView.getStaffMeshes()],true)[0]
         const staffId = staffHit?.object.userData.staffId
@@ -2621,6 +2637,14 @@ export class WorldView {
       const arrowMaterial = this.previewArrow.material as MeshStandardMaterial
       arrowMaterial.color.copy(material.color)
     }
+  }
+
+  touchPanMode = false
+
+  zoomBy(factor: number): void {
+    this.zoom = MathUtils.clamp(this.zoom * factor, 0.55, 2.4)
+    this.resize()
+    this.updateCamera()
   }
 
   private panCamera(deltaX: number, deltaY: number): void {

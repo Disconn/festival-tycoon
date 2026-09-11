@@ -1,0 +1,81 @@
+#game-canvas { touch-action: none; }
+.mobile-controls, .mobile-menu-toggle, .mobile-instructions { display: none; }
+@media (pointer: coarse) {
+  button, summary { touch-action: manipulation; }
+  .panel button, .stage-editor button, .festival-management button, .supply-planner button { min-height: 44px; }
+  input, select, textarea { font-size: 16px !important; }
+  input[type=range] { min-height: 36px; }
+  .panel-close-button { min-width: 44px; }
+  /* Tap a band, scroll to the slot, then tap the slot to book. */
+  .band-card, .show-booking { touch-action: pan-x pan-y; }
+}
+@media (max-width: 900px), (pointer: coarse) {
+  :root { --mobile-bottom: calc(116px + env(safe-area-inset-bottom)); }
+  html, body, #app, .game-shell { height: 100dvh; overscroll-behavior: none; }
+  .topbar { top: env(safe-area-inset-top, 0px); left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px); min-height: 0; padding: 5px 8px; gap: 4px; z-index: 80; }
+  .brand { width: 100%; min-width: 0; gap: 6px; }
+  .brand div, .brand-mark { display: none; }
+  .mobile-menu-toggle { display: block; margin-left: auto; min-height: 40px; padding: 6px 12px; background: #375a49; color: #f3e8c7; border: 1px solid #8a9e82; }
+  .stats { width: 100%; flex: auto; flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; gap: 14px; padding: 3px 0; font-size: 11px; }
+  .stats span { flex-shrink: 0; }
+  .stats span:nth-child(3) { display: inline; }
+  .topbar .game-actions { display: none; }
+  .topbar.mobile-menu-open .game-actions { display: flex; position: fixed; top: 82px; top: calc(82px + env(safe-area-inset-top)); left: max(6px, env(safe-area-inset-left)); right: max(6px, env(safe-area-inset-right)); max-height: calc(100dvh - 160px - env(safe-area-inset-top)); overflow-y: auto; background: #29463d; padding: 10px; border: 1px solid #9ca888; gap: 10px; }
+  .action-group { width: 100%; }
+  .mobile-instructions { display: block; color: #dfdfc6; line-height: 1.5; margin: 4px; }
+  .game-actions button { min-height: 44px; font-size: 12px; }
+  .mobile-controls { display: flex; position: fixed; left: max(6px, env(safe-area-inset-left)); right: max(6px, env(safe-area-inset-right)); bottom: calc(60px + env(safe-area-inset-bottom)); z-index: 70; overflow-x: auto; gap: 4px; padding: 3px; }
+  .mobile-controls button { flex-shrink: 0; min-width: 44px; min-height: 44px; color: #f2e8cb; background: #365747; border: 1px solid #819a7e; }
+  .mobile-controls button[aria-pressed=true] { background: #9b7135; }
+  .time-controls { bottom: max(5px, env(safe-area-inset-bottom)); right: max(6px, env(safe-area-inset-right)); z-index: 70; padding: 3px; gap: 2px; }
+  .time-controls button { min-width: 38px; min-height: 44px; }
+  .performance-indicator { bottom: max(5px, env(safe-area-inset-bottom)); left: max(6px, env(safe-area-inset-left)); max-width: calc(100vw - 178px); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 8px; z-index: 70; }
+  .help { display: none; }
+  .crowding-panel { display: none; }
+  .game-shell .crowding-panel.mobile-visible { display: block; top: auto; bottom: var(--mobile-bottom); right: 6px; left: auto; max-height: calc(100dvh - var(--topbar-gap-top, 90px) - var(--mobile-bottom)); overflow: auto; z-index: 71; width: 220px; }
+  .game-shell .build-menu, .game-shell .scenario-panel, .game-shell .multiplayer-panel,
+  .game-shell .path-construction, .game-shell .coaster-builder, .game-shell .visitor-panel,
+  .game-shell .staff-panel, .game-shell .staff-details, .game-shell .day-plan-panel,
+  .game-shell .complaints-panel, .game-shell .visitor-overview-panel, .game-shell .festival-management,
+  .game-shell .supply-planner {
+    position: fixed; top: var(--topbar-gap-top, 90px) !important;
+    left: max(6px, env(safe-area-inset-left)) !important; right: max(6px, env(safe-area-inset-right)) !important;
+    bottom: auto !important; width: auto !important; height: auto !important;
+    max-height: calc(100dvh - var(--topbar-gap-top, 90px) - var(--mobile-bottom));
+    transform: none !important; overflow: auto; overscroll-behavior: contain; padding: 10px; font-size: 12px;
+  }
+  .panel-header { touch-action: auto; cursor: default; }
+  .build-categories { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: none; overflow: visible; }
+  .build-categories button { min-height: 44px; }
+  .build-flyout { position: static; width: 100%; max-height: none; margin: 8px 0; }
+  .build-menu .tool { min-height: 44px; }
+  .supply-tools, .supply-planner form { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .festival-chrome { top: -10px; }
+  .festival-grid { grid-template-columns: 1fr; }
+  .festival-tabs { flex-wrap: nowrap; overflow-x: auto; }
+  .festival-tabs button { flex-shrink: 0; }
+  .planner-board { grid-template-columns: 1fr; }
+  .planner-board .band-palette { grid-template-columns: repeat(2, minmax(0,1fr)); max-height: 210px; }
+  .music-legend { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .show-stage { width: 100px; padding: 6px; }
+  .show-scroll { max-height: 300px; }
+  .game-shell .stage-editor { inset: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left) !important; width: auto !important; height: auto !important; transform: none !important; }
+  .stage-editor header { padding: 5px 8px; margin: 0; flex-shrink: 0; }
+  .stage-layout { display: flex; flex-direction: column; overflow-y: auto; }
+  .stage-center { order: -1; flex: 0 0 auto; }
+  .stage-center [data-viewport] { height: 38dvh; min-height: 190px; flex: none; touch-action: none; }
+  .stage-layout aside { overflow: visible; }
+  .stage-stats { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .stage-stats span { padding: 4px 8px; }
+  .stage-stats b { font-size: 13px; }
+  .stage-editor footer { padding: 5px; gap: 4px; flex-wrap: wrap; flex-shrink: 0; }
+  .stage-editor footer span { flex-basis: 100%; }
+  .stage-editor footer button { flex: 1; font-size: 11px; }
+  dialog { max-width: calc(100vw - 16px); max-height: calc(100dvh - 24px); overflow: auto; }
+  body #toast { bottom: var(--mobile-bottom); font-size: 12px; }
+}
+@media (max-width: 900px) and (max-height: 500px) {
+  .topbar .brand { width: auto; }
+  .topbar .stats { width: auto; flex: 1; }
+  .stage-center [data-viewport] { height: 55dvh; }
+}

@@ -1,4 +1,5 @@
 import { testMusicPlanning } from './musicPlanning'
+import { testMobileTouch } from './mobileTouch'
 import { testStageInteraction } from './stageInteraction'
 import { testStageTickets } from './stageTickets'
 import { SupplyChainView } from '../src/view/SupplyChainView'
@@ -27,6 +28,8 @@ function test(name: string, run: () => void) {
   run()
   console.log(`PASS ${name}`)
 }
+
+testMobileTouch()
 
 function fixture(count = 20): GameState {
   const initial = structuredClone(new GameState().snapshot)
