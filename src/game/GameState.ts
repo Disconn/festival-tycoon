@@ -42,7 +42,12 @@ import type {
   TrackPiece,
   TrackPieceKind,
 } from './coasters'
-import { CampingSystem } from './camping'
+import {
+  abandonVisitorCamp,
+  CampingSystem,
+  decayUnclaimedInstallations,
+  isCollectibleCamp,
+} from './camping'
 import type {
   CampingCell,
   CampingPhase,
@@ -62,6 +67,12 @@ import { FireworksSystem } from './fireworks'
 import type { FireworkEffect } from './fireworks'
 import { CrowdingSystem } from './crowding'
 import type { CrowdingSnapshot } from './crowding'
+import {
+  denseClusterSize,
+  neighborhoodPeople,
+  panicSpreadChance,
+  spontaneousPanicChance,
+} from './visitorBubbles'
 import {
   createPathScratch,
   createSeededRng,
@@ -210,6 +221,7 @@ export type VisitorState =
   | 'injured'
   | 'exiting'
   | 'leaving'
+  | 'panicking'
 
 export type VisitorEmotion = 'neutral' | 'happy' | 'sad' | 'angry' | 'excited'
 
@@ -249,6 +261,9 @@ export type Visitor = {
   inventory: InventoryItem[]
   motivation: number
   crowding: number
+  crowdStress: number
+  isPanicking: boolean
+  panicRecoverMinutes: number
   tileOffsetX: number
   tileOffsetZ: number
   campActivityTarget: Cell | null
@@ -580,11 +595,16 @@ export class GameState {
   private readonly neighborScratch: Cell[] = []
   private readonly neighborSeen = new Set<number>()
   private readonly pedestrianPathScratch = createPathScratch<Cell>()
-  private readonly pedestrianPathCache = new Map<string, readonly Cell[] | null>()
+  private readonly pedestrianPathCache = new Map<string, { path: readonly Cell[] | null; expires: number }>()
   private pedestrianNav = new Map<number, PedestrianNavNode>()
   private pedestrianNavKey = ''
   private visitorIndex = new Map<string, Visitor>()
   private indexedVisitorCount = -1
+  private occupancyTick = -1
+  private activityHeadcount = new Map<string, number>()
+  private activitySlotBits = new Map<string, number>()
+  private benchHeadcount = new Map<string, number>()
+  private benchSlotBits = new Map<string, number>()
   private medical = new MedicalSystem()
   private incidents = new IncidentSystem()
   private security = new SecuritySystem()
@@ -599,6 +619,9 @@ export class GameState {
   private partyMoodValues = new Map<string, number>()
   private roadGraph: RoadGraph | null = null
   private visitorsAwaitingDecision = new Set<string>()
+  private processingSimulationStep = false
+  private decisionBudget = 0
+  private decidedThisTick = new Set<string>()
   private concertChoiceKey = ''
   private concertChoices:Array<{booking:Booking;band:(typeof BANDS)[number];stage:GameSnapshot['buildings'][number]}>=[]
   private concertSlotTick = -1
@@ -670,6 +693,10 @@ export class GameState {
     this.state.parkOpen ??= true
     this.state.campingCells ??= []
     this.state.campInstallations ??= []
+    this.state.campInstallations.forEach((installation) => {
+      installation.decay ??= 0
+      installation.contributorIds ??= installation.ownerId ? [installation.ownerId] : []
+    })
     this.state.staff ??= []
     this.state.medicalCells ??= []
     this.state.wasteDumpCells ??= []
@@ -824,6 +851,9 @@ export class GameState {
         : normalizeInventory(createFestivalInventory(this.rng), Boolean(visitor.campsite))
       visitor.motivation ??= 100
       visitor.crowding ??= 0
+      visitor.crowdStress ??= 0
+      visitor.isPanicking ??= false
+      visitor.panicRecoverMinutes ??= 0
       visitor.tileOffsetX ??= 0.1 + this.rng.next() * 0.8
       visitor.tileOffsetZ ??= 0.1 + this.rng.next() * 0.8
       visitor.campActivityTarget ??= null
@@ -931,7 +961,10 @@ export class GameState {
   }
 
   private getEntrance(): Cell {
-    return createScenarioEntrance(this.getWorldSize())
+    const planned = createScenarioEntrance(this.getWorldSize())
+    const path = this.state.buildings.find((building) => building.id === ENTRANCE_PATH_ID)
+    if (path) return { x: path.x, z: path.z, elevation: path.elevation }
+    return { x: planned.x, z: planned.z, elevation: this.getTerrainHeight(planned.x, planned.z) }
   }
 
   private getRoadEntry(): RoadPosition {
@@ -1376,6 +1409,7 @@ export class GameState {
       member.state = 'patrolling'
     })
     this.camping.beginDeparture(visitor, this.getEntrance())
+    if (visitor.state === 'leaving') this.leaveVisitorCampBehind(visitor)
     if (visitor.ticketType === 'day') visitor.hasHandcart = false
     this.ensureExitRoute(visitor)
   }
@@ -3607,6 +3641,17 @@ export class GameState {
 
   private stepFixed(): void {
     if (this.state.speed === 0 || this.state.festival.planning) return
+    this.processingSimulationStep = true
+    this.decisionBudget = SIMULATION_CONFIG.pathfinding.decisionsPerTick
+    this.decidedThisTick.clear()
+    try {
+      this.simulateFixedStep()
+    } finally {
+      this.processingSimulationStep = false
+    }
+  }
+
+  private simulateFixedStep(): void {
     this.executedLogicTicks += 1
     const speed = SIMULATION_SPEED_MULTIPLIERS[this.state.speed] ?? 1
     const realSeconds = SIMULATION_CONFIG.time.tickSeconds
@@ -3682,6 +3727,7 @@ export class GameState {
       incident.ageMinutes += minutes
     })
     this.updateLogistics(minutes)
+    this.updateAbandonedCamps(minutes)
     this.updateStaff(minutes)
     this.atmosphereMinutes += minutes
     if (
@@ -4034,6 +4080,9 @@ export class GameState {
     })
 
     if (removedVisitors.size > 0) {
+      this.state.visitors.forEach((visitor) => {
+        if (removedVisitors.has(visitor.id)) this.leaveVisitorCampBehind(visitor)
+      })
       this.state.visitors = this.state.visitors.filter(
         (visitor) => !removedVisitors.has(visitor.id),
       )
@@ -5209,7 +5258,7 @@ export class GameState {
             elevation: building.elevation,
           })),
         findPath: (start, goals, allowGround) =>
-          this.findPath(start, goals, false, allowGround, allowGround, false, true, undefined, true),
+          this.findPath(start, goals, false, true, allowGround, false, true, undefined, true),
         pathNeighbors: (cell) =>
           this.getPedestrianNeighbors(cell, {
             allowStaff: true,
@@ -5261,9 +5310,84 @@ export class GameState {
           bin.wasteFill = (bin.wasteFill ?? 0) - taken
           return taken
         },
+        abandonedCamps: this.collectibleAbandonedCamps(),
+        removeAbandonedCamp: (id) => {
+          const before = this.state.campInstallations.length
+          this.state.campInstallations = this.state.campInstallations.filter(
+            (installation) => installation.id !== id,
+          )
+          return this.state.campInstallations.length < before
+        },
       },
       minutes,
     )
+  }
+
+  private collectibleAbandonedCamps(): Array<{
+    id: string
+    x: number
+    z: number
+    elevation: number
+  }> {
+    const living = new Set(this.state.visitors.map((visitor) => visitor.id))
+    return this.state.campInstallations
+      .filter((installation) => isCollectibleCamp(installation, living))
+      .map((installation) => {
+        const access = this.campCleanupAccess(installation.cell)
+        return {
+          id: `camp:${installation.id}`,
+          x: access.x,
+          z: access.z,
+          elevation: access.elevation,
+        }
+      })
+  }
+
+  private campCleanupAccess(cell: { x: number; z: number; elevation: number }): {
+    x: number
+    z: number
+    elevation: number
+  } {
+    const pitch = this.getCampingCellAt(cell.x, cell.z)
+    const here = {
+      x: cell.x,
+      z: cell.z,
+      elevation: pitch?.elevation ?? this.getTerrainHeight(cell.x, cell.z),
+    }
+    const adjacent = [
+      { x: cell.x + 1, z: cell.z },
+      { x: cell.x - 1, z: cell.z },
+      { x: cell.x, z: cell.z + 1 },
+      { x: cell.x, z: cell.z - 1 },
+    ]
+    for (const neighbor of adjacent) {
+      const path =
+        this.getPathAt(neighbor.x, neighbor.z, this.getTerrainHeight(neighbor.x, neighbor.z)) ??
+        this.getPathAt(neighbor.x, neighbor.z)
+      if (path) {
+        return { x: path.x, z: path.z, elevation: path.elevation }
+      }
+    }
+    return here
+  }
+
+  private updateAbandonedCamps(minutes: number): void {
+    const living = new Set(this.state.visitors.map((visitor) => visitor.id))
+    this.state.campInstallations = decayUnclaimedInstallations(
+      this.state.campInstallations,
+      living,
+      minutes,
+    )
+  }
+
+  private leaveVisitorCampBehind(visitor: Visitor): void {
+    this.state.campInstallations = abandonVisitorCamp(
+      visitor,
+      this.state.campInstallations,
+      () => this.nextId('camp'),
+    )
+    visitor.campsite = null
+    if (visitor.campingPhase !== 'packing') visitor.campingPhase = 'none'
   }
 
   private updateCrowdingAndMotivation(minutes: number): void {
@@ -5277,7 +5401,6 @@ export class GameState {
       ]),
     )
     this.crowdingCostPacked.clear()
-    this.pedestrianPathCache.clear()
     result.snapshot.cells.forEach((cell) => {
       this.crowdingCostPacked.set(this.packCell(cell), cell.value)
     })
@@ -5288,6 +5411,15 @@ export class GameState {
           this.cellKey(incident.x, incident.z, incident.elevation),
         ),
     )
+    const peopleByCell = new Map<string, number>()
+    const panicByCell = new Map<string, number>()
+    for (const visitor of this.state.visitors) {
+      const key = this.cellKey(visitor.cellX, visitor.cellZ, visitor.cellElevation)
+      peopleByCell.set(key, (peopleByCell.get(key) ?? 0) + 1)
+      if (visitor.isPanicking || visitor.state === 'panicking') {
+        panicByCell.set(key, (panicByCell.get(key) ?? 0) + 1)
+      }
+    }
     this.state.visitors.forEach((visitor) => {
       visitor.crowding = result.visitorValues.get(visitor.id) ?? 0
       if (visitor.state === 'medical' || visitor.state === 'medical-transport') {
@@ -5298,6 +5430,7 @@ export class GameState {
         )
         return
       }
+      this.updateCrowdPanicStress(visitor, minutes, this.countOnTouchingCells(visitor, peopleByCell))
       const crowdingPressure = Math.max(
         0,
         (visitor.crowding - config.pressureStart) / config.pressureRange,
@@ -5389,6 +5522,7 @@ export class GameState {
       )
       if (
         visitor.motivation === 0 &&
+        !visitor.isPanicking &&
         visitor.state !== 'riding' &&
         visitor.state !== 'sleeping' &&
         visitor.state !== 'leaving' &&
@@ -5408,6 +5542,195 @@ export class GameState {
         this.beginVisitorDeparture(visitor)
       }
     })
+    this.resolveCrowdPanic(minutes, peopleByCell, panicByCell)
+  }
+
+  private canEnterCrowdPanic(visitor: Visitor): boolean {
+    return (
+      !visitor.isPanicking &&
+      visitor.state !== 'riding' &&
+      visitor.state !== 'sleeping' &&
+      visitor.state !== 'leaving' &&
+      visitor.state !== 'vehicle-arrival' &&
+      visitor.state !== 'bus-riding' &&
+      visitor.state !== 'medical' &&
+      visitor.state !== 'medical-transport' &&
+      visitor.state !== 'injured' &&
+      visitor.campingPhase !== 'packing' &&
+      visitor.campingPhase !== 'resting'
+    )
+  }
+
+  private updateCrowdPanicStress(visitor: Visitor, minutes: number, nearbyPeople: number): void {
+    const crowd = SIMULATION_CONFIG.crowding
+    if (visitor.crowding >= crowd.denseThreshold) {
+      const intensity = Math.min(
+        1,
+        (visitor.crowding - crowd.denseThreshold) / Math.max(1, 100 - crowd.denseThreshold),
+      )
+      visitor.crowdStress = Math.min(
+        100,
+        visitor.crowdStress +
+          minutes * crowd.stressGainPerMinute * (0.4 + intensity * 0.6) *
+            (1 + Math.min(crowd.panicNearbyCap, nearbyPeople) / 80),
+      )
+      return
+    }
+    if (visitor.crowding <= crowd.calmThreshold) {
+      visitor.crowdStress = Math.max(0, visitor.crowdStress - minutes * crowd.stressDecayPerMinute)
+    }
+  }
+
+  private countOnTouchingCells(
+    visitor: { cellX: number; cellZ: number; cellElevation: number },
+    counts: Map<string, number>,
+  ): number {
+    const x = visitor.cellX
+    const z = visitor.cellZ
+    const elevation = visitor.cellElevation
+    return (
+      (counts.get(this.cellKey(x, z, elevation)) ?? 0) +
+      (counts.get(this.cellKey(x + 1, z, elevation)) ?? 0) +
+      (counts.get(this.cellKey(x - 1, z, elevation)) ?? 0) +
+      (counts.get(this.cellKey(x, z + 1, elevation)) ?? 0) +
+      (counts.get(this.cellKey(x, z - 1, elevation)) ?? 0)
+    )
+  }
+
+  private markPanicCell(visitor: Visitor, panicByCell: Map<string, number>): void {
+    const key = this.cellKey(visitor.cellX, visitor.cellZ, visitor.cellElevation)
+    panicByCell.set(key, (panicByCell.get(key) ?? 0) + 1)
+  }
+
+  private resolveCrowdPanic(
+    minutes: number,
+    peopleByCell: Map<string, number>,
+    panicByCell: Map<string, number>,
+  ): void {
+    const crowd = SIMULATION_CONFIG.crowding
+    const crowdingAt = (x: number, z: number, elevation: number) =>
+      this.crowdingCosts.get(this.cellKey(x, z, elevation)) ?? 0
+    const peopleAt = (x: number, z: number, elevation: number) =>
+      peopleByCell.get(this.cellKey(x, z, elevation)) ?? 0
+    this.state.visitors.forEach((visitor) => {
+      if (!this.canEnterCrowdPanic(visitor) || visitor.crowding < crowd.denseThreshold) return
+      const denseCells = denseClusterSize(visitor, crowdingAt, crowd.denseThreshold)
+      const clusterPeople = neighborhoodPeople(visitor, peopleAt)
+      const nearby = this.countOnTouchingCells(visitor, peopleByCell)
+      const chance =
+        spontaneousPanicChance(visitor.crowding, visitor.crowdStress, nearby, denseCells, clusterPeople) *
+        minutes
+      if (this.rng.next() < chance) {
+        this.beginCrowdPanic(visitor)
+        this.markPanicCell(visitor, panicByCell)
+      }
+    })
+    this.state.visitors.forEach((visitor) => {
+      if (!this.canEnterCrowdPanic(visitor) || visitor.crowding < crowd.denseThreshold) return
+      const denseCells = denseClusterSize(visitor, crowdingAt, crowd.denseThreshold)
+      const nearbyPanic = this.countOnTouchingCells(visitor, panicByCell)
+      if (this.rng.next() < panicSpreadChance(visitor.crowding, nearbyPanic, denseCells) * minutes) {
+        this.beginCrowdPanic(visitor)
+        this.markPanicCell(visitor, panicByCell)
+      }
+    })
+    this.state.visitors.forEach((visitor) => {
+      if (!visitor.isPanicking) return
+      const alcohol = visitor.alcoholLevel
+      visitor.needs.hunger = Math.max(0, visitor.needs.hunger - minutes * crowd.panicNeedLossPerMinute)
+      visitor.needs.toilet = Math.max(0, visitor.needs.toilet - minutes * crowd.panicNeedLossPerMinute)
+      visitor.needs.fun = Math.max(0, visitor.needs.fun - minutes * crowd.panicNeedLossPerMinute)
+      visitor.needs.energy = Math.max(0, visitor.needs.energy - minutes * crowd.panicNeedLossPerMinute)
+      visitor.alcoholLevel = alcohol
+      visitor.motivation = Math.max(0, visitor.motivation - minutes * crowd.panicMotivationLossPerMinute)
+      visitor.emotion = 'angry'
+      visitor.emotionMinutes = Math.max(visitor.emotionMinutes, 8)
+      if (visitor.crowding <= crowd.calmThreshold) {
+        visitor.panicRecoverMinutes += minutes
+        if (visitor.panicRecoverMinutes >= crowd.panicRecoverMinutes) {
+          this.endCrowdPanic(visitor)
+        }
+        return
+      }
+      visitor.panicRecoverMinutes = 0
+      this.ensurePanicFleeRoute(visitor)
+      if (visitor.motivation === 0 && visitor.crowding >= crowd.denseThreshold) {
+        this.recordComplaint(visitor, 'overcrowding')
+        this.beginVisitorDeparture(visitor)
+      }
+    })
+  }
+
+  private beginCrowdPanic(visitor: Visitor): void {
+    this.clearVisitorActivity(visitor)
+    this.removeVisitorFromCoasterQueues(visitor.id)
+    visitor.isPanicking = true
+    visitor.panicRecoverMinutes = 0
+    visitor.crowdStress = Math.max(visitor.crowdStress, 70)
+    visitor.isConversing = false
+    visitor.state = 'panicking'
+    visitor.targetId = null
+    visitor.concertId = null
+    visitor.emotion = 'angry'
+    visitor.emotionMinutes = 20
+    visitor.thought = 'Massenpanik! Ich muss hier raus!'
+    this.ensurePanicFleeRoute(visitor)
+  }
+
+  private endCrowdPanic(visitor: Visitor): void {
+    visitor.isPanicking = false
+    visitor.panicRecoverMinutes = 0
+    visitor.crowdStress = Math.min(visitor.crowdStress, 24)
+    visitor.motivation = Math.min(100, Math.max(visitor.motivation, 32))
+    visitor.state = 'exploring'
+    visitor.targetId = null
+    visitor.route = []
+    visitor.emotion = 'happy'
+    visitor.emotionMinutes = 10
+    visitor.thought = 'Das Gedränge lässt nach. Kurz durchatmen, dann geht es weiter.'
+  }
+
+  private ensurePanicFleeRoute(visitor: Visitor): void {
+    if (this.isAtParkExit(visitor)) {
+      visitor.route = []
+      return
+    }
+    if (visitor.route.length > 0) return
+    const current = this.crowdingCosts.get(
+      this.cellKey(visitor.cellX, visitor.cellZ, visitor.cellElevation),
+    ) ?? visitor.crowding
+    const quieter = [
+      { x: visitor.cellX + 1, z: visitor.cellZ },
+      { x: visitor.cellX - 1, z: visitor.cellZ },
+      { x: visitor.cellX, z: visitor.cellZ + 1 },
+      { x: visitor.cellX, z: visitor.cellZ - 1 },
+    ]
+      .map((cell) => ({
+        x: cell.x,
+        z: cell.z,
+        elevation: visitor.cellElevation,
+        crowding: this.crowdingCosts.get(
+          this.cellKey(cell.x, cell.z, visitor.cellElevation),
+        ) ?? 0,
+      }))
+      .filter((cell) => {
+        const path = this.getPathAt(cell.x, cell.z, cell.elevation)
+        return Boolean(path) && !path?.staffOnly && cell.crowding < current - 6
+      })
+      .sort((left, right) => left.crowding - right.crowding)
+    if (quieter[0]) {
+      visitor.route = [quieter[0]]
+      return
+    }
+    visitor.route =
+      this.findPath(
+        { x: visitor.cellX, z: visitor.cellZ, elevation: visitor.cellElevation },
+        [this.getEntrance()],
+        true,
+        true,
+        true,
+        true,
+      ) ?? []
   }
 
   save(): ActionResult {
@@ -5675,6 +5998,9 @@ export class GameState {
       inventory,
       motivation: 100,
       crowding: 0,
+      crowdStress: 0,
+      isPanicking: false,
+      panicRecoverMinutes: 0,
       tileOffsetX,
       tileOffsetZ,
       campActivityTarget: null,
@@ -5818,7 +6144,7 @@ export class GameState {
   }
 
   private updateVisitors(minutes: number): void {
-    this.flushVisitorDecisions(Math.min(64, Math.max(8, Math.ceil(this.state.visitors.length / 50))))
+    this.flushVisitorDecisions(SIMULATION_CONFIG.pathfinding.decisionsPerTick)
     const leavingIds = new Set<string>()
 
     this.state.visitors.forEach((visitor) => {
@@ -5849,6 +6175,20 @@ export class GameState {
       }
       if (visitor.state === 'leaving') {
         this.ensureExitRoute(visitor)
+      }
+      if (visitor.state === 'leaving' && this.tryBoardDepartureCar(visitor)) {
+        return
+      }
+      if (
+        (visitor.state === 'leaving' || visitor.isPanicking || visitor.state === 'panicking') &&
+        this.isAtParkExit(visitor)
+      ) {
+        leavingIds.add(visitor.id)
+        return
+      }
+      if (visitor.isPanicking || visitor.state === 'panicking') {
+        if (visitor.state !== 'leaving') visitor.state = 'panicking'
+        if (visitor.route.length === 0) this.ensurePanicFleeRoute(visitor)
       }
       if (visitor.state === 'medical') {
         const medical = SIMULATION_CONFIG.medical
@@ -5943,7 +6283,9 @@ export class GameState {
         visitor.needs.energy <=
           SIMULATION_CONFIG.visitors.decisions.exhaustedEnergy &&
         visitor.state !== 'riding' &&
-        visitor.state !== 'camping'
+        visitor.state !== 'camping' &&
+        visitor.state !== 'bench-resting' &&
+        !this.visitorsAwaitingDecision.has(visitor.id)
       ) {
         this.removeVisitorFromCoasterQueues(visitor.id)
         visitor.targetId = null
@@ -5955,7 +6297,9 @@ export class GameState {
         visitor.needs.energy <=
           SIMULATION_CONFIG.visitors.decisions.exhaustedEnergy &&
         visitor.state !== 'riding' &&
-        visitor.state !== 'leaving'
+        visitor.state !== 'leaving' &&
+        visitor.state !== 'bench-resting' &&
+        !this.visitorsAwaitingDecision.has(visitor.id)
       ) {
         this.removeVisitorFromCoasterQueues(visitor.id)
         visitor.targetId = null
@@ -6244,7 +6588,10 @@ export class GameState {
       ) {
         return
       }
-      if (visitor.state === 'leaving' && this.isAtEntrance(visitor)) {
+      if (
+        (visitor.state === 'leaving' || visitor.isPanicking || visitor.state === 'panicking') &&
+        this.isAtParkExit(visitor)
+      ) {
         leavingIds.add(visitor.id)
       } else if (visitor.targetId) {
         this.arriveOrDecide(visitor)
@@ -6254,6 +6601,9 @@ export class GameState {
     })
 
     if (leavingIds.size > 0) {
+      this.state.visitors.forEach((visitor) => {
+        if (leavingIds.has(visitor.id)) this.leaveVisitorCampBehind(visitor)
+      })
       this.state.visitors = this.state.visitors.filter((visitor) => !leavingIds.has(visitor.id))
       this.indexedVisitorCount = -1
       this.state.guests = this.state.visitors.length
@@ -6878,7 +7228,10 @@ export class GameState {
         : 1)
     const ground = wayInfo(this.state, visitor.cellX, visitor.cellZ, 'foot', this.getPathAt(visitor.cellX, visitor.cellZ, visitor.cellElevation)?.wayType)
     const surface = visitor.cellElevation > this.getTerrainHeight(visitor.cellX, visitor.cellZ) ? 1 : ground.speed
-    return visitor.walkSpeed * speedMultiplier * surface / (1 + Math.max(0, visitor.crowding - 35) / 55)
+    const crowdSlowdown = visitor.isPanicking
+      ? 1 + Math.max(0, visitor.crowding - 50) / 90
+      : 1 + Math.max(0, visitor.crowding - 35) / 55
+    return visitor.walkSpeed * speedMultiplier * (visitor.isPanicking ? SIMULATION_CONFIG.crowding.panicFleeBoost : 1) * surface / crowdSlowdown
   }
 
   private groundWetBucket = -1
@@ -6888,24 +7241,26 @@ export class GameState {
   private refreshPedestrianCongestion(): void {
     const costs = new Map<number, number>()
     const visited = new Set<number>()
-    for (const cell of [
-      ...this.state.visitors.map(visitor => ({ x: visitor.cellX, z: visitor.cellZ, elevation: visitor.cellElevation })),
-      ...this.state.festival.infrastructure.routes.map(route => route.position),
-    ]) {
-      const key = this.packCell(cell)
-      if (visited.has(key)) continue
+    const consider = (x: number, z: number, elevation: number): void => {
+      const key = this.packCell({ x, z, elevation })
+      if (visited.has(key)) return
       visited.add(key)
       const count = this.movementOccupancy.get(key) ?? 0
-      const capacity = wayInfo(this.state, cell.x, cell.z, 'foot', this.getPathAt(cell.x, cell.z, cell.elevation)?.wayType).capacity
-      // Local occupancy matters: the free lane beside a crowd must stay attractive.
+      const capacity = wayInfo(this.state, x, z, 'foot', this.getPathAt(x, z, elevation)?.wayType).capacity
       const density = count / capacity
       const penalty = Math.min(24, Math.floor(7 * Math.pow(Math.max(0, density - 0.5) * 2, 2)))
       if (penalty > 0) costs.set(key, penalty)
     }
+    for (const visitor of this.state.visitors) {
+      consider(visitor.cellX, visitor.cellZ, visitor.cellElevation)
+    }
+    for (const route of this.state.festival.infrastructure.routes) {
+      consider(route.position.x, route.position.z, route.position.elevation)
+    }
     if (costs.size !== this.pedestrianCongestionCosts.size ||
       [...costs].some(([key, value]) => this.pedestrianCongestionCosts.get(key) !== value)) {
       this.pedestrianCongestionCosts = costs
-      this.pedestrianPathCache.clear()
+      // Cost changes expire gradually. Topology changes still invalidate immediately.
     }
   }
   /** Keep the current segment and destination; only reconsider the journey between them.
@@ -7119,7 +7474,7 @@ export class GameState {
 
   private arriveOrDecide(visitor: Visitor): void {
     if (this.visitorsAwaitingDecision.has(visitor.id)) return
-    if (visitor.state === 'leaving') return
+    if (visitor.state === 'leaving' || visitor.isPanicking || visitor.state === 'panicking') return
     if (visitor.state === 'bus-waiting') {
       visitor.thought = 'Ich warte an der Haltestelle auf den Bus.'
       return
@@ -7229,6 +7584,15 @@ export class GameState {
   }
 
   private decideNextAction(visitor: Visitor): void {
+    if (this.processingSimulationStep) {
+      if (this.decisionBudget <= 0 || this.decidedThisTick.has(visitor.id)) {
+        this.queueVisitorDecision(visitor)
+        return
+      }
+      this.decisionBudget--
+      this.decidedThisTick.add(visitor.id)
+      this.visitorsAwaitingDecision.delete(visitor.id)
+    }
     if (visitor.streakingMinutes > 0) {
       this.continueStreakingRun(visitor)
       return
@@ -7238,6 +7602,10 @@ export class GameState {
       if (visitor.state === 'seeking' && visitor.pendingWaste > 0) return
     }
     const decisions = SIMULATION_CONFIG.visitors.decisions
+    if (visitor.isPanicking || visitor.state === 'panicking') {
+      this.ensurePanicFleeRoute(visitor)
+      return
+    }
     if (!this.state.parkOpen || visitor.motivation <= 0) {
       this.beginVisitorDeparture(visitor)
       return
@@ -7334,6 +7702,7 @@ export class GameState {
         visitor.activitySlot = bench.slot
         visitor.activityCapacity =
           SIMULATION_CONFIG.atmosphere.benchCapacity
+        this.adjustVisitorOccupancy(visitor, 1)
         visitor.interactionRemaining =
           SIMULATION_CONFIG.atmosphere.benchRestMinutes
         if (
@@ -7531,6 +7900,7 @@ export class GameState {
         visitor.activityTarget = leisure.cell
         visitor.activitySlot = leisure.slot
         visitor.activityCapacity = leisure.capacity
+        this.adjustVisitorOccupancy(visitor, 1)
         visitor.interactionRemaining =
           SIMULATION_CONFIG.atmosphere.leisureDurationMinimum +
           this.rng.next() *
@@ -7676,6 +8046,7 @@ export class GameState {
     visitor.activityTarget = party.cell
     visitor.activitySlot = party.slot
     visitor.activityCapacity = party.capacity
+    this.adjustVisitorOccupancy(visitor, 1)
     const partyKey = this.cellKey(
       party.cell.x,
       party.cell.z,
@@ -7865,6 +8236,7 @@ export class GameState {
       visitor.activityCapacity,
       visitor.id,
     )
+    this.adjustVisitorOccupancy(visitor, 1)
     visitor.interactionRemaining =
       SIMULATION_CONFIG.atmosphere.leisureDurationMinimum
     visitor.consumptionCooldown = 0
@@ -7998,25 +8370,121 @@ export class GameState {
     return null
   }
 
+  private adjustVisitorOccupancy(visitor: Visitor, delta: -1 | 1): void {
+    if (this.occupancyTick !== this.state.simTick) return
+    if (
+      (visitor.state === 'relaxing' || visitor.state === 'partying') &&
+      visitor.activityTarget
+    ) {
+      const key = this.cellKey(
+        visitor.activityTarget.x,
+        visitor.activityTarget.z,
+        visitor.activityTarget.elevation,
+      )
+      const next = Math.max(0, (this.activityHeadcount.get(key) ?? 0) + delta)
+      if (next) this.activityHeadcount.set(key, next)
+      else this.activityHeadcount.delete(key)
+      if (delta > 0) {
+        this.activitySlotBits.set(
+          key,
+          (this.activitySlotBits.get(key) ?? 0) | (1 << (visitor.activitySlot & 31)),
+        )
+      } else {
+        this.activitySlotBits.set(
+          key,
+          (this.activitySlotBits.get(key) ?? 0) & ~(1 << (visitor.activitySlot & 31)),
+        )
+      }
+    } else if (visitor.state === 'bench-resting' && visitor.targetId) {
+      const next = Math.max(0, (this.benchHeadcount.get(visitor.targetId) ?? 0) + delta)
+      if (next) this.benchHeadcount.set(visitor.targetId, next)
+      else this.benchHeadcount.delete(visitor.targetId)
+      if (delta > 0) {
+        this.benchSlotBits.set(
+          visitor.targetId,
+          (this.benchSlotBits.get(visitor.targetId) ?? 0) |
+            (1 << (visitor.activitySlot & 31)),
+        )
+      } else {
+        this.benchSlotBits.set(
+          visitor.targetId,
+          (this.benchSlotBits.get(visitor.targetId) ?? 0) &
+            ~(1 << (visitor.activitySlot & 31)),
+        )
+      }
+    }
+  }
+
+  private ensureVisitorOccupancy(): void {
+    if (this.occupancyTick === this.state.simTick) return
+    this.occupancyTick = this.state.simTick
+    this.activityHeadcount.clear()
+    this.activitySlotBits.clear()
+    this.benchHeadcount.clear()
+    this.benchSlotBits.clear()
+    for (const visitor of this.state.visitors) {
+      if (
+        (visitor.state === 'relaxing' || visitor.state === 'partying') &&
+        visitor.activityTarget
+      ) {
+        const key = this.cellKey(
+          visitor.activityTarget.x,
+          visitor.activityTarget.z,
+          visitor.activityTarget.elevation,
+        )
+        this.activityHeadcount.set(key, (this.activityHeadcount.get(key) ?? 0) + 1)
+        this.activitySlotBits.set(
+          key,
+          (this.activitySlotBits.get(key) ?? 0) | (1 << (visitor.activitySlot & 31)),
+        )
+      } else if (visitor.state === 'bench-resting' && visitor.targetId) {
+        this.benchHeadcount.set(
+          visitor.targetId,
+          (this.benchHeadcount.get(visitor.targetId) ?? 0) + 1,
+        )
+        this.benchSlotBits.set(
+          visitor.targetId,
+          (this.benchSlotBits.get(visitor.targetId) ?? 0) | (1 << (visitor.activitySlot & 31)),
+        )
+      }
+    }
+  }
+
+  private activityOccupantsAt(cell: Cell, excluded: Visitor): number {
+    this.ensureVisitorOccupancy()
+    let count =
+      this.activityHeadcount.get(this.cellKey(cell.x, cell.z, cell.elevation)) ?? 0
+    if (
+      (excluded.state === 'relaxing' || excluded.state === 'partying') &&
+      excluded.activityTarget?.x === cell.x &&
+      excluded.activityTarget.z === cell.z &&
+      excluded.activityTarget.elevation === cell.elevation
+    ) {
+      count -= 1
+    }
+    return count
+  }
+
   private getFreeActivitySlot(
     cell: Cell,
     capacity: number,
     excludedVisitorId: string,
   ): number {
-    const used = new Set(
-      this.state.visitors
-        .filter(
-          (visitor) =>
-            visitor.id !== excludedVisitorId &&
-            visitor.activityTarget?.x === cell.x &&
-            visitor.activityTarget.z === cell.z &&
-            visitor.activityTarget.elevation === cell.elevation &&
-            (visitor.state === 'relaxing' || visitor.state === 'partying'),
-        )
-        .map((visitor) => visitor.activitySlot),
-    )
+    this.ensureVisitorOccupancy()
+    const key = this.cellKey(cell.x, cell.z, cell.elevation)
+    let used = this.activitySlotBits.get(key) ?? 0
+    const excluded = this.getVisitor(excludedVisitorId)
+    if (
+      excluded &&
+      (excluded.state === 'relaxing' || excluded.state === 'partying') &&
+      excluded.activityTarget?.x === cell.x &&
+      excluded.activityTarget.z === cell.z &&
+      excluded.activityTarget.elevation === cell.elevation
+    ) {
+      used &= ~(1 << (excluded.activitySlot & 31))
+    }
     const order = [4, 0, 2, 6, 8, 1, 3, 5, 7].slice(0, capacity)
-    return order.find((slot) => !used.has(slot)) ?? 4
+    return order.find((slot) => (used & (1 << slot)) === 0) ?? 4
   }
 
   private findLeisureDestination(visitor: Visitor): {
@@ -8059,15 +8527,8 @@ export class GameState {
         const cellKey = this.cellKey(cell.x, cell.z, cell.elevation)
         const beauty = this.attractivenessValues.get(cellKey) ?? 0
         const party = this.partyMoodValues.get(cellKey) ?? 0
-        const occupants = this.state.visitors.filter(
-          (other) =>
-            other.id !== visitor.id &&
-            (other.state === 'relaxing' || other.state === 'partying') &&
-            other.activityTarget?.x === cell.x &&
-            other.activityTarget.z === cell.z &&
-            other.activityTarget.elevation === cell.elevation,
-        )
-        if (occupants.length >= config.leisureCapacityPerPathCell) return null
+        const occupantCount = this.activityOccupantsAt(cell, visitor)
+        if (occupantCount >= config.leisureCapacityPerPathCell) return null
         const distance =
           Math.abs(cell.x - visitor.cellX) +
           Math.abs(cell.z - visitor.cellZ)
@@ -8075,11 +8536,11 @@ export class GameState {
           cell,
           beauty,
           party,
-          occupants,
+          occupants: occupantCount,
           score:
             beauty * visitor.beautyPreference +
             party * visitor.partyPreference -
-            occupants.length * config.occupancyScorePenalty -
+            occupantCount * config.occupancyScorePenalty -
             distance * config.leisureDecisionDistancePenalty -
             (this.crowdingCosts.get(cellKey) ?? 0) *
               config.crowdingScorePenalty,
@@ -8204,21 +8665,21 @@ export class GameState {
     const candidates = this.state.buildings
       .filter((building) => building.kind === 'bench')
       .map((building) => {
-        const occupants = this.state.visitors.filter(
-          (candidate) =>
-            candidate.id !== visitor.id &&
-            candidate.state === 'bench-resting' &&
-            candidate.targetId === building.id,
-        )
-        if (occupants.length >= SIMULATION_CONFIG.atmosphere.benchCapacity) {
+        this.ensureVisitorOccupancy()
+        let occupantCount = this.benchHeadcount.get(building.id) ?? 0
+        let usedBits = this.benchSlotBits.get(building.id) ?? 0
+        if (visitor.state === 'bench-resting' && visitor.targetId === building.id) {
+          occupantCount -= 1
+          usedBits &= ~(1 << (visitor.activitySlot & 31))
+        }
+        if (occupantCount >= SIMULATION_CONFIG.atmosphere.benchCapacity) {
           return null
         }
-        const used = new Set(occupants.map((candidate) => candidate.activitySlot))
         const slot =
           Array.from(
             { length: SIMULATION_CONFIG.atmosphere.benchCapacity },
             (_, index) => index,
-          ).find((index) => !used.has(index)) ?? 0
+          ).find((index) => (usedBits & (1 << index)) === 0) ?? 0
         return {
           building,
           slot,
@@ -8297,15 +8758,8 @@ export class GameState {
     const scored = candidates
       .filter(candidate=>!this.avoidsConcertAt(visitor,candidate.cell))
       .map((candidate) => {
-        const occupants = this.state.visitors.filter(
-          (other) =>
-            other.id !== visitor.id &&
-            (other.state === 'partying' || other.state === 'relaxing') &&
-            other.activityTarget?.x === candidate.cell.x &&
-            other.activityTarget.z === candidate.cell.z &&
-            other.activityTarget.elevation === candidate.cell.elevation,
-        )
-        if (occupants.length >= candidate.capacity) return null
+        const occupantCount = this.activityOccupantsAt(candidate.cell, visitor)
+        if (occupantCount >= candidate.capacity) return null
         const cellKey = this.cellKey(
           candidate.cell.x,
           candidate.cell.z,
@@ -8319,11 +8773,11 @@ export class GameState {
         const crowding = this.crowdingCosts.get(cellKey) ?? 0
         return {
           ...candidate,
-          occupants,
+          occupantCount,
           score:
             beauty * visitor.beautyPreference +
             party * visitor.partyPreference -
-            occupants.length * atmosphere.occupancyScorePenalty -
+            occupantCount * atmosphere.occupancyScorePenalty -
             distance * atmosphere.distanceScorePenalty -
             crowding * atmosphere.crowdingScorePenalty +
             (candidate.forecourt ? atmosphere.forecourtScoreBonus : 0),
@@ -8345,13 +8799,11 @@ export class GameState {
         candidate.forecourt,
       )
       if (!route) continue
-      const used = new Set(
-        candidate.occupants.map((occupant) => occupant.activitySlot),
+      const slot = this.getFreeActivitySlot(
+        candidate.cell,
+        candidate.capacity,
+        visitor.id,
       )
-      const slotOrder = candidate.forecourt
-        ? [4, 0, 2, 6, 8, 1, 3, 5, 7]
-        : [0, 2, 6, 8].slice(0, candidate.capacity)
-      const slot = slotOrder.find((index) => !used.has(index)) ?? 4
       return {
         cell: { ...candidate.cell },
         route,
@@ -8364,6 +8816,7 @@ export class GameState {
   }
 
   private clearVisitorActivity(visitor: Visitor): void {
+    this.adjustVisitorOccupancy(visitor, -1)
     visitor.concertId = null
     visitor.activityTarget = null
     visitor.activitySlot = 0
@@ -8508,7 +8961,8 @@ export class GameState {
     })
     const accessCacheKey = `${cacheKey}:${allowStaff ? 'staff' : 'guest'}`
     const cached = this.pedestrianPathCache.get(accessCacheKey)
-    if (cached !== undefined) return this.clonePedestrianPath(cached)
+    if (cached && cached.expires > this.state.simTick) return this.clonePedestrianPath(cached.path)
+    if (cached) this.pedestrianPathCache.delete(accessCacheKey)
     const goalKeys = new Set(goals.map((cell) => this.packCell(cell)))
     const movementCost = (_from: Cell, to: Cell): number => {
       const key = this.packCell(to)
@@ -8569,12 +9023,17 @@ export class GameState {
       this.pedestrianPathCache.size >=
       SIMULATION_CONFIG.pathfinding.pathCacheLimit
     ) {
-      this.pedestrianPathCache.clear()
+      // Evict one entry, not every route used by the crowd.
+      this.pedestrianPathCache.delete(this.pedestrianPathCache.keys().next().value!)
     }
     // A budget-limited miss says nothing about reachability; never cache it.
     if (maxVisited === undefined || result) this.pedestrianPathCache.set(
       accessCacheKey,
-      result ? result.map((cell) => ({ ...cell })) : null,
+      {
+        path: result ? result.map((cell) => ({ ...cell })) : null,
+        expires: this.state.simTick + SIMULATION_CONFIG.pathfinding.pathCacheLifetimeTicks +
+          (this.packCell(start) % SIMULATION_CONFIG.pathfinding.pathCacheLifetimeTicks),
+      },
     )
     return this.clonePedestrianPath(result)
   }
@@ -9583,11 +10042,17 @@ export class GameState {
   }
 
   private isAtEntrance(visitor: Visitor): boolean {
-    return (
-      visitor.cellX === this.getEntrance().x &&
-      visitor.cellZ === this.getEntrance().z &&
-      visitor.cellElevation === this.getEntrance().elevation
-    )
+    return this.isAtParkExit(visitor)
+  }
+
+  private isAtParkExit(visitor: Visitor): boolean {
+    const entrance = this.getEntrance()
+    if (visitor.cellX === entrance.x && visitor.cellZ === entrance.z) return true
+    const path =
+      this.getPathAt(visitor.cellX, visitor.cellZ, visitor.cellElevation) ??
+      this.getPathAt(visitor.cellX, visitor.cellZ)
+    if (path?.id === ENTRANCE_PATH_ID) return true
+    return Boolean(path) && visitor.cellZ === -this.getWorldSize() / 2
   }
 
   private packXZ(x: number, z: number): number {
@@ -9797,26 +10262,35 @@ export class GameState {
   }
 
   private ensureEntrancePath(): void {
+    const planned = createScenarioEntrance(this.getWorldSize())
+    const elevation = this.getTerrainHeight(planned.x, planned.z)
     const existing =
       this.state.buildings.find((building) => building.id === ENTRANCE_PATH_ID) ??
-      this.getPathAt(this.getEntrance().x, this.getEntrance().z, this.getEntrance().elevation)
+      this.getPathAt(planned.x, planned.z, planned.elevation) ??
+      this.getPathAt(planned.x, planned.z)
     if (existing) {
+      const liftLegacy =
+        existing.x === planned.x &&
+        existing.z === planned.z &&
+        (existing.elevation === 0 || existing.elevation === planned.elevation) &&
+        existing.elevation !== elevation
       existing.id = ENTRANCE_PATH_ID
       existing.kind = 'path'
-      existing.x = this.getEntrance().x
-      existing.z = this.getEntrance().z
-      existing.elevation = 0
+      existing.x = planned.x
+      existing.z = planned.z
+      if (liftLegacy) existing.elevation = elevation
       existing.pathType = 'normal'
       existing.pathSlope = 0
+      if (liftLegacy) this.indexedBuildingCount = -1
       return
     }
     this.state.buildings.unshift({
       id: ENTRANCE_PATH_ID,
       kind: 'path',
-      x: this.getEntrance().x,
-      z: this.getEntrance().z,
+      x: planned.x,
+      z: planned.z,
       rotation: 0,
-      elevation: 0,
+      elevation,
       pathType: 'normal',
       pathSlope: 0,
       pathSlopeDirection: 0,

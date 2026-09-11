@@ -2454,3 +2454,11 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .staff-details > button { display: block; width: 100%; margin: 6px 0 0; }
 body:has(.staff-details:not([hidden])) .supply-planner,
 body:has(.staff-details:not([hidden])) .crowding-panel { visibility: hidden; }
+.app-install-dialog { width: min(460px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 18px; line-height: 1.55; }
+.app-install-dialog::backdrop { background: #000a; }
+.app-install-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.app-install-dialog h2 { margin: 0; font-size: 18px; }
+.app-install-dialog img { display: block; margin: 16px 0; border-radius: 16px; }
+.app-install-dialog li { margin-bottom: 10px; }
+.app-install-dialog button { min-height: 44px; min-width: 44px; background: #3f715b; color: #f2efd8; border: 1px solid #819b8c; padding: 8px 14px; }
+.app-install-dialog small { display: block; margin-bottom: 12px; overflow-wrap: anywhere; }

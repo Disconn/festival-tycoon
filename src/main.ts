@@ -54,11 +54,31 @@ import {
 } from './game/complaints'
 import { WorldView } from './view/WorldView'
 import type { CellPosition, PathAnchor } from './view/WorldView'
+import { isTextEntryTarget } from './uiFocus'
+import { mountMobileUI } from './mobileUI'
+import { mountAppInstall } from './appInstall'
 
 function requireElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
   if (!element) throw new Error(`Benötigtes UI-Element fehlt: ${selector}`)
   return element
+}
+
+function setPanelOpen(
+  panel: HTMLElement,
+  button: HTMLButtonElement,
+  open: boolean,
+  onOpen?: () => void,
+): void {
+  panel.classList.toggle('visible', open)
+  button.setAttribute('aria-expanded', String(open))
+  if (open) onOpen?.()
+}
+
+function closeBuildSubmenus(): void {
+  document
+    .querySelectorAll<HTMLElement>('[data-build-category], [data-build-panel]')
+    .forEach((element) => element.classList.remove('open'))
 }
 
 const app = requireElement<HTMLDivElement>('#app')
@@ -110,11 +130,11 @@ app.innerHTML = `
         </div>
         <div class="action-divider"></div>
         <div id="action-group-views" class="action-group" aria-label="Ansichten">
-          <button id="open-logistics">🚚 Logistik</button>
-          <button id="open-day-plan">📅 Tagesplan</button>
-          <button id="open-complaints">📣 Beschwerden</button>
-          <button id="open-visitors">👥 Besucher</button>
-          <button id="open-staff">🧑‍💼 Personal</button>
+          <button id="open-logistics" aria-expanded="false">🚚 Logistik</button>
+          <button id="open-day-plan" aria-expanded="false">📅 Tagesplan</button>
+          <button id="open-complaints" aria-expanded="false">📣 Beschwerden</button>
+          <button id="open-visitors" aria-expanded="false">👥 Besucher</button>
+          <button id="open-staff" aria-expanded="false">🧑‍💼 Personal</button>
         </div>
         <div class="action-divider"></div>
         <div id="action-group-session" class="action-group" aria-label="Sitzung">
@@ -967,7 +987,13 @@ let game = new GameState()
 const festivalUI = mountFestivalUI(() => game, showToast)
 const stageEditor = mountStageEditor(() => game, showToast)
 const stageEditorButton = document.createElement('button')
-stageEditorButton.textContent = '🎭 Bühnenwerkstatt'; stageEditorButton.addEventListener('click',()=>stageEditor.open())
+stageEditorButton.id = 'open-stage-editor'
+stageEditorButton.textContent = '🎭 Bühnenwerkstatt'
+stageEditorButton.setAttribute('aria-expanded', 'false')
+stageEditorButton.addEventListener('click', () => {
+  if (stageEditor.isOpen()) stageEditor.close()
+  else stageEditor.open()
+})
 document.querySelector('#action-group-festival')!.append(stageEditorButton)
 const editStageButton = document.createElement('button')
 editStageButton.textContent='Bühne gestalten';editStageButton.hidden=true
@@ -2608,6 +2634,7 @@ function updateVisitorPanel(): void {
     injured: 'Wartet verletzt auf Hilfe',
     exiting: 'Verlässt die Attraktion',
     leaving: 'Verlässt den Park',
+    panicking: 'Flieht aus dem Gedränge',
   }
   visitorName.textContent = visitor.name
   visitorThought.textContent = `„${visitor.thought}“`
@@ -3066,9 +3093,7 @@ document.querySelectorAll<HTMLButtonElement>('[data-build-category]').forEach((b
   button.addEventListener('click', () => {
     const category = button.dataset.buildCategory
     const wasOpen = button.classList.contains('open')
-    document
-      .querySelectorAll<HTMLElement>('[data-build-category], [data-build-panel]')
-      .forEach((element) => element.classList.remove('open'))
+    closeBuildSubmenus()
     if (!wasOpen) {
       button.classList.add('open')
       document
@@ -3076,6 +3101,14 @@ document.querySelectorAll<HTMLButtonElement>('[data-build-category]').forEach((b
         ?.classList.add('open')
     }
   })
+})
+document.addEventListener('pointerdown', (event) => {
+  const target = event.target
+  if (!(target instanceof Element)) return
+  if (target.closest('[data-build-category]')) return
+  const openFlyout = document.querySelector<HTMLElement>('.build-flyout.open')
+  if (!openFlyout || openFlyout.contains(target)) return
+  closeBuildSubmenus()
 })
 
 document.querySelectorAll<HTMLButtonElement>('.build-menu [data-tool]').forEach((button) => {
@@ -3103,24 +3136,46 @@ document.querySelectorAll<HTMLButtonElement>('[data-speed]').forEach((button) =>
   button.addEventListener('click', () => game.setSpeed(Number(button.dataset.speed)))
 })
 
-requireElement<HTMLButtonElement>('#open-staff').addEventListener('click', () => {
-  staffPanel.classList.add('visible')
-  updateStaffPanel()
+const staffPanelToggle = requireElement<HTMLButtonElement>('#open-staff')
+const visitorOverviewToggle = requireElement<HTMLButtonElement>('#open-visitors')
+const dayPlanToggle = requireElement<HTMLButtonElement>('#open-day-plan')
+const logisticsPanelToggle = requireElement<HTMLButtonElement>('#open-logistics')
+const complaintsToggle = requireElement<HTMLButtonElement>('#open-complaints')
+staffPanelToggle.addEventListener('click', () => {
+  setPanelOpen(staffPanel, staffPanelToggle, !staffPanel.classList.contains('visible'), updateStaffPanel)
 })
-requireElement<HTMLButtonElement>('#open-visitors').addEventListener('click', () => {
-  visitorOverviewPanel.classList.add('visible')
-  visitorOverviewFingerprint = ''
-  updateVisitorOverview(true)
+visitorOverviewToggle.addEventListener('click', () => {
+  setPanelOpen(
+    visitorOverviewPanel,
+    visitorOverviewToggle,
+    !visitorOverviewPanel.classList.contains('visible'),
+    () => {
+      visitorOverviewFingerprint = ''
+      updateVisitorOverview(true)
+    },
+  )
 })
-requireElement<HTMLButtonElement>('#open-day-plan').addEventListener('click', () => {
-  dayPlanPanel.classList.add('visible')
-  dayPlanFingerprint = ''
-  updateDayPlanPanel(true)
+dayPlanToggle.addEventListener('click', () => {
+  setPanelOpen(
+    dayPlanPanel,
+    dayPlanToggle,
+    !dayPlanPanel.classList.contains('visible'),
+    () => {
+      dayPlanFingerprint = ''
+      updateDayPlanPanel(true)
+    },
+  )
 })
-requireElement<HTMLButtonElement>('#open-logistics').addEventListener('click', () => {
-  logisticsPanel.classList.add('visible')
-  logisticsFingerprint = ''
-  updateLogisticsPanel(true)
+logisticsPanelToggle.addEventListener('click', () => {
+  setPanelOpen(
+    logisticsPanel,
+    logisticsPanelToggle,
+    !logisticsPanel.classList.contains('visible'),
+    () => {
+      logisticsFingerprint = ''
+      updateLogisticsPanel(true)
+    },
+  )
 })
 requireElement<HTMLButtonElement>('#debug-money').addEventListener('click', () => {
   const result = game.addDebugMoney()
@@ -3200,6 +3255,7 @@ const activateInfoIfNothingOpen = (): void => {
 const closeBuildMenu = (): void => {
   buildMenuPanel.hidden = true
   buildMenuToggle.setAttribute('aria-expanded', 'false')
+  closeBuildSubmenus()
 }
 const closeBulldozeMenu = (): void => {
   bulldozeMenuPanel.classList.remove('open')
@@ -3451,7 +3507,7 @@ requireElement<HTMLButtonElement>('#start-scenario').addEventListener(
 )
 fillScenarioForm(game.snapshot.scenario)
 requireElement<HTMLButtonElement>('#close-logistics').addEventListener('click', () => {
-  logisticsPanel.classList.remove('visible')
+  setPanelOpen(logisticsPanel, logisticsPanelToggle, false)
 })
 document.querySelectorAll<HTMLButtonElement>('[data-logistics-tab]').forEach((button) => {
   button.addEventListener('click', () => {
@@ -3508,16 +3564,22 @@ busLinesList.addEventListener('click', (event) => {
   const result = game.deleteBusLine(button.dataset.deleteLine)
   showToast(result.message, !result.ok)
 })
-requireElement<HTMLButtonElement>('#open-complaints').addEventListener('click', () => {
-  complaintsPanel.classList.add('visible')
-  complaintsFingerprint = ''
-  updateComplaintsPanel(true)
+complaintsToggle.addEventListener('click', () => {
+  setPanelOpen(
+    complaintsPanel,
+    complaintsToggle,
+    !complaintsPanel.classList.contains('visible'),
+    () => {
+      complaintsFingerprint = ''
+      updateComplaintsPanel(true)
+    },
+  )
 })
 requireElement<HTMLButtonElement>('#close-complaints').addEventListener('click', () => {
-  complaintsPanel.classList.remove('visible')
+  setPanelOpen(complaintsPanel, complaintsToggle, false)
 })
 requireElement<HTMLButtonElement>('#close-day-plan').addEventListener('click', () => {
-  dayPlanPanel.classList.remove('visible')
+  setPanelOpen(dayPlanPanel, dayPlanToggle, false)
 })
 dayPlanGrid.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
@@ -3560,7 +3622,7 @@ requireElement<HTMLButtonElement>('#apply-festival-cycle').addEventListener(
   },
 )
 requireElement<HTMLButtonElement>('#close-visitor-overview').addEventListener('click', () => {
-  visitorOverviewPanel.classList.remove('visible')
+  setPanelOpen(visitorOverviewPanel, visitorOverviewToggle, false)
 })
 visitorThoughtFilter.addEventListener('input', () => {
   visitorOverviewPage = 0
@@ -3588,11 +3650,11 @@ visitorOverviewList.addEventListener('click', (event) => {
   )
   const visitorId = row?.dataset.visitorOverviewId
   if (!visitorId) return
-  visitorOverviewPanel.classList.remove('visible')
+  setPanelOpen(visitorOverviewPanel, visitorOverviewToggle, false)
   selectVisitor(visitorId)
 })
 requireElement<HTMLButtonElement>('#close-staff').addEventListener('click', () => {
-  staffPanel.classList.remove('visible')
+  setPanelOpen(staffPanel, staffPanelToggle, false)
 })
 staffList.addEventListener('click', (event) => {
   const target = event.target as HTMLElement
@@ -4093,6 +4155,7 @@ dispatchIntervalInput.addEventListener('input', () => {
 })
 
 window.addEventListener('keydown', (event) => {
+  if (isTextEntryTarget(event.target) || isTextEntryTarget(document.activeElement)) return
   if ((event.key >= '1' && event.key <= '9') || event.key === '0') {
     const allTools: Tool[] = [
       'path',
@@ -4141,6 +4204,20 @@ window.addEventListener('keydown', (event) => {
 })
 
 bindGameState(game)
+mountAppInstall()
+
+mountMobileUI({
+  panMode: enabled => { view.touchPanMode = enabled },
+  rotateCamera: direction => {
+    view.rotate(direction)
+    cameraQuarter = (cameraQuarter + direction + 4) % 4
+    updatePathEditor()
+    updateCoasterBuilder()
+  },
+  rotateBuilding: () => { if (pathEditorActive) rotatePathDirection(1); else game.rotateBuild() },
+  zoom: factor => view.zoomBy(factor),
+  elevation: delta => { if (pathEditorActive) setPathSlope(pathSlope + delta); else game.adjustBuildElevation(delta) },
+})
 
 const performanceIndicator = document.createElement('div')
 const versionLabel = `v${__APP_VERSION__} · Build ${__BUILD_ID__} UTC`

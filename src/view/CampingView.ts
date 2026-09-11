@@ -167,7 +167,7 @@ export class CampingView {
   private createInstallationFingerprint(snapshot: Readonly<GameSnapshot>): string {
     let fingerprint = ''
     for (const installation of snapshot.campInstallations) {
-      fingerprint += `${installation.id}:${installation.cell.x}:${installation.cell.z}:${installation.kind}:${installation.contributorIds.length}|`
+      fingerprint += `${installation.id}:${installation.cell.x}:${installation.cell.z}:${installation.kind}:${installation.contributorIds.length}:${Math.round(installation.decay ?? 0)}|`
     }
     return fingerprint
   }
@@ -270,15 +270,18 @@ export class CampingView {
     const owners = new Map(snapshot.visitors.map(visitor => [visitor.id, visitor]))
     snapshot.campInstallations.forEach((installation) => {
       const owner = owners.get(installation.ownerId)
+      const decay = installation.decay ?? 0
       const key = `installation:${installation.id}`
-      const stamp = `${installation.cell.x}:${installation.cell.z}:${getTerrainHeight(snapshot.terrain, installation.cell.x, installation.cell.z)}:${installation.kind}:${installation.contributorIds.length}:${owner?.color}`
+      const stamp = `${installation.cell.x}:${installation.cell.z}:${getTerrainHeight(snapshot.terrain, installation.cell.x, installation.cell.z)}:${installation.kind}:${installation.contributorIds.length}:${owner?.color}:${Math.round(decay)}`
       if (!needsUpdate(key, stamp)) return
       const model =
-        installation.kind === 'pavilion'
-          ? this.createPavilionModel(owner?.color ?? 0x668fbd)
-          : installation.kind === 'musicBox'
-            ? this.createMusicBoxModel()
-            : this.createChairModel(installation.contributorIds.length)
+        installation.kind === 'tent'
+          ? this.createAbandonedTentModel(owner?.color ?? 0x8a6a4a, decay)
+          : installation.kind === 'pavilion'
+            ? this.createPavilionModel(owner?.color ?? 0x668fbd)
+            : installation.kind === 'musicBox'
+              ? this.createMusicBoxModel()
+              : this.createChairModel(installation.contributorIds.length)
       model.position.set(
         installation.cell.x + 0.5,
         getTerrainHeight(
@@ -288,6 +291,11 @@ export class CampingView {
         ) + 0.02,
         installation.cell.z + 0.5,
       )
+      if (decay > 0 && installation.kind !== 'tent') {
+        const wear = decay / 100
+        model.rotation.z += wear * 0.28
+        model.scale.setScalar(1 - wear * 0.18)
+      }
       this.props.add(model)
       this.propModels.set(key, { stamp, model })
     })
@@ -299,6 +307,37 @@ export class CampingView {
     }
     disposeChildren(this.batchedProps)
     this.batchedProps.add(batchCampMeshes(this.props))
+  }
+
+  private createAbandonedTentModel(color: number, decay: number): Group {
+    const group = new Group()
+    const wear = Math.max(0, Math.min(1, decay / 100))
+    const faded = Math.round(color * (1 - wear * 0.45) + 0x6b5340 * wear)
+    const tent = new Mesh(
+      new ConeGeometry(0.39, 0.52, 4),
+      new MeshStandardMaterial({ color: faded, roughness: 0.95 }),
+    )
+    tent.rotation.y = Math.PI / 4
+    tent.rotation.z = wear * 0.55
+    tent.position.y = 0.27 - wear * 0.08
+    tent.castShadow = true
+    const entrance = new Mesh(
+      new PlaneGeometry(0.2, 0.22),
+      new MeshStandardMaterial({ color: 0x2f3440, side: 2 }),
+    )
+    entrance.position.set(0, 0.18, 0.285)
+    entrance.rotation.x = -0.18
+    group.add(tent, entrance)
+    if (wear < 0.7) {
+      const parkedCart = createHandcartModel()
+      parkedCart.scale.setScalar(0.8)
+      parkedCart.position.set(0.34, 0.07, -0.24)
+      parkedCart.rotation.y = -0.7
+      parkedCart.rotation.z = wear * 0.4
+      group.add(parkedCart)
+    }
+    group.scale.setScalar(1 - wear * 0.16)
+    return group
   }
 
   private createChairModel(amount: number): Group {

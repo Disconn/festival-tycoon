@@ -43,6 +43,32 @@ docker run --rm -p 8080:8080 -v festival-saves:/app/saves ghcr.io/y1zz1y/festiva
 
 Oder aus dem Repo: `docker compose up --build`. Danach http://localhost:8080 öffnen.
 
+## Mobile Bedienung
+
+### iOS-Homescreen-App
+
+Spieladresse in Safari öffnen → Teilen → **Zum Home-Bildschirm** →
+**Als Web-App öffnen** (falls angeboten) → Hinzufügen. Unter **Menü → Zum
+Home-Bildschirm** steht die Anleitung auch im Spiel. Die App startet im
+Standalone-Modus mit eigenem Icon; Hoch- und Querformat bleiben möglich.
+Für eine öffentlich erreichbare Installation den Spielserver über HTTPS betreiben.
+Das Manifest und die PNG-Icons liegen in `public/` und werden auch im Docker-Build
+mit ausgeliefert. Die Icons können mit `node scripts/generate-app-icons.mjs` reproduziert werden.
+
+Es wird kein Service Worker installiert: Beim Start muss der Server erreichbar sein,
+und das vorhandene `no-cache` für HTML sorgt beim erneuten Laden für den aktuellen Build.
+Browser- und Homescreen-Speicher können getrennt sein: vor dem Wechsel auf dem Server
+speichern oder einen Spielstand als Text exportieren und in der App importieren.
+
+Auf schmalen Bildschirmen öffnet **Menü** die Verwaltung, die Leiste unten die
+Bauwerkzeuge und Kameraaktionen. Die Leiste ist seitlich scrollbar.
+Ein Tipp baut oder wählt aus; mit zwei Fingern verschiebt und zoomt man die Karte.
+**✋ Schieben** aktiviert das Verschieben mit einem Finger, auch bei gewähltem Bauwerkzeug.
+Im Info-Modus verschiebt Ziehen die Kamera; Flächenwerkzeuge zeichnen mit einem Finger.
+Ein zweiter Finger bricht die laufende Flächenauswahl ab.
+Im Bandplan: Band antippen, zum gewünschten Slot scrollen und den Slot antippen.
+Die Bühnenwerkstatt zeigt Vorschau, Bauteile und Showpult untereinander.
+
 ## Umgebungen und Gelände
 
 Unter **Szenario** stehen Ackerland, Wüste, Grasfläche und Stadtfläche zur Wahl.
