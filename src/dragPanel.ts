@@ -10,6 +10,7 @@
 export function makeDraggable(handle: HTMLElement, panel: HTMLElement): () => boolean {
   let moved = false
   handle.addEventListener('pointerdown', (event) => {
+    if (window.matchMedia('(max-width: 900px), (pointer: coarse)').matches) return
     if ((event.target as HTMLElement).closest('button')) return
     event.preventDefault()
     const rect = panel.getBoundingClientRect()

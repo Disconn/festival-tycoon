@@ -1,4 +1,6 @@
 import { updateStageBand } from './stageBand'
+import { createRetroBuilding, batchRetroBuildings } from './retroBuildings'
+import { bindTouchCamera } from './touchCamera'
 import { stageSiteIssue } from '../game/stageSite'
 import { createStageModel, animateStageModel, updateStageLightPool } from './stageModel'
 import { stagePhase, stageSize, occupiesBuildingCell } from '../game/stageDesign'
@@ -11,6 +13,7 @@ import { groundRectangle } from '../game/ground'
 import { groundInfo } from '../game/ground'
 import { SupplyChainView } from './SupplyChainView'
 import { scenePixelRatio } from './renderResolution'
+import { isTextEntryTarget } from '../uiFocus'
 import {
   AmbientLight,
   BoxGeometry,
@@ -59,6 +62,8 @@ import type { CashEffect, GameSnapshot, PlacedBuilding, Visitor } from '../game/
 import { CampingView } from './CampingView'
 import { FireworksView } from './FireworksView'
 import { CrowdingView } from './CrowdingView'
+import { PanicView } from './PanicView'
+import { visitorBubbleKind } from '../game/visitorBubbles'
 import { StaffView } from './StaffView'
 import { MedicalView } from './MedicalView'
 import { IncidentView } from './IncidentView'
@@ -157,6 +162,7 @@ export class WorldView {
   private campingView = new CampingView()
   private fireworksView = new FireworksView()
   private crowdingView = new CrowdingView()
+  private panicView = new PanicView()
   private staffView = new StaffView()
   private medicalView = new MedicalView()
   private wasteView = new WasteView()
@@ -171,6 +177,7 @@ export class WorldView {
   private previousOverlays = [false, false, false]
   setLogisticsMode(enabled: boolean): void {
     const groups = [this.crowdingView.group, this.attractivenessView.group, this.partyMoodView.group]
+    this.panicView.group.visible = !enabled
     if (enabled && !this.logisticsMode) { this.previousOverlays = groups.map(g => g.visible); this.followVisitor(null) }
     if (!enabled && this.logisticsMode) groups.forEach((g, n) => g.visible = this.previousOverlays[n]!)
     this.logisticsMode = enabled
@@ -192,6 +199,7 @@ export class WorldView {
   private visitorColor = new Color()
   private visitorSkinColor = new Color(0xf0bd8c)
   private visitorPantsColor = new Color(0x31445b)
+  private visitorPanicTint = new Color(0xc62828)
   private emotionInstances = new Map<string, InstancedMesh>()
   private emotionPose = new Object3D()
   private visitorHandcarts: Group[] = []
@@ -385,6 +393,7 @@ export class WorldView {
       this.campingView.group,
       this.fireworksView.group,
       this.crowdingView.group,
+      this.panicView.group,
       this.medicalView.group,
       this.wasteView.group,
       this.pathFlowView.group,
@@ -520,10 +529,12 @@ export class WorldView {
     )
     this.fireworksView.update(snapshot.fireworkEffects)
     if (dataChanged) this.crowdingView.update(snapshot.crowding)
+    this.panicView.update(snapshot.visitors, snapshot.crowding)
     if (this.logisticsMode) {
       this.crowdingView.group.visible = false
       this.attractivenessView.group.visible = false
       this.partyMoodView.group.visible = false
+      this.panicView.group.visible = false
     }
     this.updatePreview()
   }
@@ -1044,6 +1055,7 @@ export class WorldView {
       }
       this.buildings.add(model)
     })
+    this.buildings.add(batchRetroBuildings(this.buildings))
   }
 
   private createBuildingModel(
@@ -1054,6 +1066,11 @@ export class WorldView {
     surfaceColor?: number,
     wayType?: WayType,
   ): Group {
+    const detailed = createRetroBuilding(kind)
+    if (detailed) {
+      this.addSupport(detailed, elevation, .24)
+      return detailed
+    }
     const group = new Group()
     const definition = BUILDINGS[kind]
     const material = new MeshStandardMaterial({ color: surfaceColor ?? definition.color, roughness: 0.7 })
@@ -1948,7 +1965,10 @@ export class WorldView {
         seed = Number(visitor.id.replace(/\D/g, '').slice(-3)) || index
         this.visitorSeedCache.set(visitor.id, seed)
       }
-      const pace = streaking
+      const fleeing = visitor.isPanicking || visitor.state === 'panicking'
+      const pace = fleeing
+        ? 2.2
+        : streaking
         ? 2.15
         : visitor.emotion === 'angry'
           ? 1.45
@@ -2063,7 +2083,7 @@ export class WorldView {
             ? Math.sin(phase * 0.5) * 0.16 * intoxication
             : 0
       const strength =
-        visitor.emotion === 'angry' ? 0.9 : visitor.emotion === 'sad' ? 0.32 : 0.65
+        fleeing ? 1.2 : visitor.emotion === 'angry' ? 0.9 : visitor.emotion === 'sad' ? 0.32 : 0.65
       const limbSwing =
         visitor.state === 'sleeping' || visitor.state === 'medical-transport'
           ? 0
@@ -2071,11 +2091,15 @@ export class WorldView {
             ? Math.PI * 0.42
             : stride * (visitor.isDancing ? 1.15 : strength)
       const headTilt = visitor.emotion === 'sad' ? 0.35 : 0
-      const shirtColor = streaking ? this.visitorSkinColor : this.visitorColor.setHex(visitor.color)
+      const shirtColor = streaking
+        ? this.visitorSkinColor
+        : fleeing
+          ? this.visitorColor.setHex(visitor.color).lerp(this.visitorPanicTint, 0.55)
+          : this.visitorColor.setHex(visitor.color)
       const legColor = streaking ? this.visitorSkinColor : this.visitorPantsColor
 
       this.visitorPose.position.set(displayX, displayY, displayZ)
-      this.visitorPose.rotation.set(0, targetRotation, tilt)
+      this.visitorPose.rotation.set(fleeing ? 0.28 : 0, targetRotation, fleeing ? 0 : tilt)
       this.visitorPose.scale.set(1, scaleY, 1)
       this.visitorPose.updateMatrix()
       this.setVisitorLimb(index, this.visitorBodyInstances, 0, 0.36, 0, 0, shirtColor)
@@ -2089,21 +2113,21 @@ export class WorldView {
         hideLimbs(index)
       }
 
-      const visualEmotion =
-        visitor.state === 'sleeping'
-          ? 'sleeping'
-          : visitor.state === 'socializing'
-            ? 'talking'
-            : visitor.isDancing
-              ? 'dancing'
-              : visitor.isConversing
-                ? 'talking'
-                : visitor.emotion
-      const emotionBatch = this.getEmotionBatch(visualEmotion, visitors.length)
-      this.emotionPose.position.set(displayX, displayY + 0.82, displayZ)
-      this.emotionPose.quaternion.copy(this.camera.quaternion)
-      this.emotionPose.updateMatrix()
-      emotionBatch.setMatrixAt(emotionBatch.count++, this.emotionPose.matrix)
+      const bubble = visitorBubbleKind(visitor)
+      if (bubble) {
+        const emotionBatch = this.getEmotionBatch(bubble, visitors.length)
+        const size = bubble === 'panic' ? 1.55 : bubble === 'crushed' ? 1.2 : 1
+        this.emotionPose.position.set(
+          displayX,
+          displayY + (bubble === 'panic' ? 1.02 : 0.82),
+          displayZ,
+        )
+        this.emotionPose.scale.setScalar(size)
+        this.emotionPose.quaternion.copy(this.camera.quaternion)
+        this.emotionPose.updateMatrix()
+        emotionBatch.setMatrixAt(emotionBatch.count++, this.emotionPose.matrix)
+        this.emotionPose.scale.setScalar(1)
+      }
       if (visitor.hasHandcart && !streaking) {
         const cart = this.getVisitorHandcart(cartIndex)
         cartIndex += 1
@@ -2280,6 +2304,8 @@ export class WorldView {
       sleeping: '💤',
       talking: '💬',
       dancing: '🎶',
+      crushed: '😣',
+      panic: '😱',
     }
     const canvas = document.createElement('canvas')
     canvas.width = 128
@@ -2327,6 +2353,21 @@ export class WorldView {
   }
 
   private bindEvents(): void {
+    bindTouchCamera(this.canvas, {
+      pan: (x, y) => this.panCamera(x, y),
+      zoom: factor => this.zoomBy(factor),
+      panWithOneFinger: () => this.touchPanMode || (this.currentSnapshot?.selectedTool === 'inspect' && !this.groundAreaHandler),
+      cancelBuild: () => {
+        this.groundAreaStart = null
+        this.groundAreaEndKey = ''
+        this.leftPointerDown = false
+        this.painting = false
+        this.dragging = false
+        this.pointerDownCell = null
+        this.lastPaintCell = null
+        this.setPathDragPreview([], 0)
+      },
+    })
     this.canvas.addEventListener('contextmenu', (event) => event.preventDefault())
     this.canvas.addEventListener('pointerdown', (event) => {
       this.groundAreaCancelled = false
@@ -2340,7 +2381,7 @@ export class WorldView {
       this.lastPointer.set(event.clientX, event.clientY)
       this.pointerDown.copy(this.lastPointer)
       this.canvas.setPointerCapture(event.pointerId)
-      if (event.button === 0 && this.groundAreaHandler && this.hoveredCell) {
+      if (event.button === 0 && !(event.pointerType === 'touch' && this.touchPanMode) && this.groundAreaHandler && this.hoveredCell) {
         this.groundAreaStart = { ...this.hoveredCell }; this.groundAreaEndKey = ''; this.updateGroundAreaPreview()
       }
     })
@@ -2354,7 +2395,7 @@ export class WorldView {
         return
       }
       const moved = this.pointerDown.distanceTo(new Vector2(event.clientX, event.clientY))
-      if (event.button === 0 && moved < 5 && !this.painting) {
+      if (event.button === 0 && moved < 5 && !this.painting && !(event.pointerType === 'touch' && this.touchPanMode)) {
         this.setRayFromPointer(event)
         const staffHit = this.raycaster.intersectObjects([...(this.staffView.group.visible?this.staffView.group.children:[]),...this.supplyChainView.getStaffMeshes()],true)[0]
         const staffId = staffHit?.object.userData.staffId
@@ -2437,6 +2478,7 @@ export class WorldView {
       { passive: false },
     )
     window.addEventListener('keydown', event => {
+      if (isTextEntryTarget(event.target) || isTextEntryTarget(document.activeElement)) return
       if (event.key !== 'Escape' || !this.groundAreaStart) return
       this.setGroundAreaTool(this.groundAreaHandler)
       this.groundAreaCancelled = true; this.leftPointerDown = false; this.pointerDownCell = null
@@ -2660,6 +2702,14 @@ export class WorldView {
       const arrowMaterial = this.previewArrow.material as MeshStandardMaterial
       arrowMaterial.color.copy(material.color)
     }
+  }
+
+  touchPanMode = false
+
+  zoomBy(factor: number): void {
+    this.zoom = MathUtils.clamp(this.zoom * factor, 0.55, 2.4)
+    this.resize()
+    this.updateCamera()
   }
 
   private panCamera(deltaX: number, deltaY: number): void {

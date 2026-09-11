@@ -45,6 +45,8 @@ type StaffContext = {
   depositWaste: (x: number, z: number, amount: number) => number
   emptyBin: (id: string, amount: number) => number
   fillBin?: (id: string, amount: number) => number
+  abandonedCamps?: Array<{ id: string; x: number; z: number; elevation: number }>
+  removeAbandonedCamp?: (id: string) => boolean
 }
 
 export class StaffSimulation {
@@ -99,7 +101,7 @@ export class StaffSimulation {
       }
       const area = member.workArea
       const inside = (x: number, z: number) => !area || x >= area.minX && x <= area.maxX && z >= area.minZ && z <= area.maxZ
-      const workContext = area ? { ...context, visitors: context.visitors.filter(v => inside(v.cellX, v.cellZ)), incidents: context.incidents.filter(p => inside(p.x, p.z)), wasteBins: context.wasteBins.filter(p => inside(p.x, p.z)) } : context
+      const workContext = area ? { ...context, visitors: context.visitors.filter(v => inside(v.cellX, v.cellZ)), incidents: context.incidents.filter(p => inside(p.x, p.z)), wasteBins: context.wasteBins.filter(p => inside(p.x, p.z)), abandonedCamps: context.abandonedCamps?.filter(p => inside(p.x, p.z)) } : context
       // An inaccessible job must not pin a worker in place. Bound path searches
       // per decision, then patrol so the next search starts from a new position.
       const excluded = new Set(claimed)
@@ -201,20 +203,36 @@ export class StaffSimulation {
           (left, right) =>
             this.incidentDistance(left, member) - this.incidentDistance(right, member),
         )[0]
-      if (bin && incident) {
-        const binDistance =
-          Math.abs(bin.x - member.cellX) + Math.abs(bin.z - member.cellZ)
-        const incidentDistance = this.incidentDistance(incident, member)
-        if (binDistance <= incidentDistance + 2) {
-          return {
-            id: bin.id,
-            cell: { x: bin.x, z: bin.z, elevation: bin.elevation },
-            allowMedical: true,
-            kind: 'bin',
-          }
-        }
-      }
-      if (bin && !incident) {
+      const leftover = (context.abandonedCamps ?? [])
+        .filter((candidate) => !claimed.has(candidate.id))
+        .sort(
+          (left, right) =>
+            Math.abs(left.x - member.cellX) + Math.abs(left.z - member.cellZ) -
+            (Math.abs(right.x - member.cellX) + Math.abs(right.z - member.cellZ)),
+        )[0]
+      const jobs = [
+        incident
+          ? {
+              id: incident.id,
+              distance: this.incidentDistance(incident, member),
+              cell: { x: incident.x, z: incident.z, elevation: incident.elevation },
+              kind: incident.kind,
+            }
+          : null,
+        leftover
+          ? {
+              id: leftover.id,
+              distance:
+                Math.abs(leftover.x - member.cellX) + Math.abs(leftover.z - member.cellZ),
+              cell: { x: leftover.x, z: leftover.z, elevation: leftover.elevation },
+              kind: 'camp',
+            }
+          : null,
+      ]
+        .filter((job): job is NonNullable<typeof job> => Boolean(job))
+        .sort((left, right) => left.distance - right.distance)
+      const job = jobs[0]
+      if (bin && (!job || Math.abs(bin.x - member.cellX) + Math.abs(bin.z - member.cellZ) <= job.distance + 2)) {
         return {
           id: bin.id,
           cell: { x: bin.x, z: bin.z, elevation: bin.elevation },
@@ -222,12 +240,12 @@ export class StaffSimulation {
           kind: 'bin',
         }
       }
-      return incident
+      return job
         ? {
-            id: incident.id,
-            cell: { x: incident.x, z: incident.z, elevation: incident.elevation },
+            id: job.id,
+            cell: job.cell,
             allowMedical: true,
-            kind: incident.kind,
+            kind: job.kind,
           }
         : null
     }
@@ -328,12 +346,15 @@ export class StaffSimulation {
         member.workMinutes = SIMULATION_CONFIG.staff.cleanerBinWorkMinutes
         return
       }
+      const leftover = this.abandonedCampId(member.targetId)
+        ? context.abandonedCamps?.find((candidate) => candidate.id === member.targetId)
+        : undefined
       const incident = context.incidents.find(
         (candidate) => candidate.id === member.targetId,
       )
       member.state = 'working'
       member.workMinutes =
-        incident?.kind === 'litter'
+        leftover || incident?.kind === 'litter'
           ? SIMULATION_CONFIG.staff.cleanerLitterWorkMinutes
           : SIMULATION_CONFIG.staff.cleanerWorkMinutes
       return
@@ -373,6 +394,18 @@ export class StaffSimulation {
       this.reset(member)
       return
     }
+    if (member.role === 'cleaner' && this.abandonedCampId(member.targetId)) {
+      const leftoverId = this.abandonedCampId(member.targetId)
+      const room = Math.max(
+        0,
+        SIMULATION_CONFIG.waste.cleanerMaxCarry - member.carryingWaste,
+      )
+      if (leftoverId && room > 0 && context.removeAbandonedCamp?.(leftoverId)) {
+        member.carryingWaste += 1
+        member.wasteFromBin = false
+      }
+      return this.afterCleanerPickup(member, context)
+    }
     if (member.role === 'cleaner' && incident?.kind === 'litter') {
       const room = Math.max(
         0,
@@ -385,19 +418,42 @@ export class StaffSimulation {
       if (incident.severity <= 0) {
         context.removeIncident(incident.id)
       }
-      member.targetId = null
-      if (member.carryingWaste > 0) {
-        if (!this.sendCleanerToDump(member, context)) {
-          member.state = 'carrying'
-        }
-        return
-      }
-      this.reset(member)
-      return
+      return this.afterCleanerPickup(member, context)
     }
     if (member.targetId) context.removeIncident(member.targetId)
     member.targetId = null
     member.state = 'patrolling'
+  }
+
+  private abandonedCampId(targetId: string | null): string | null {
+    if (!targetId?.startsWith('camp:')) return null
+    return targetId.slice('camp:'.length)
+  }
+
+  private afterCleanerPickup(member: StaffMember, context: StaffContext): void {
+    member.targetId = null
+    if (member.carryingWaste <= 0) {
+      this.reset(member)
+      return
+    }
+    if (member.carryingWaste < SIMULATION_CONFIG.waste.cleanerTripCarry) {
+      const claimed = new Set(
+        context.staff.map((worker) => worker.targetId).filter((id): id is string => Boolean(id)),
+      )
+      const next = this.findTarget(member, context, claimed)
+      if (next) {
+        const route = context.findPath(this.staffCell(member), [next.cell], next.allowMedical)
+        if (route) {
+          member.targetId = next.id
+          member.state = 'responding'
+          member.route = route
+          return
+        }
+      }
+    }
+    if (!this.sendCleanerToDump(member, context)) {
+      member.state = 'carrying'
+    }
   }
 
   private sendCleanerToDump(member: StaffMember, context: StaffContext): boolean {

@@ -12,7 +12,7 @@ export type CampingPhase =
   | 'resting'
   | 'packing'
 
-export type CampSetupKind = 'chairs' | 'pavilion' | 'musicBox'
+export type CampSetupKind = 'chairs' | 'pavilion' | 'musicBox' | 'tent'
 
 export type CampInstallation = {
   id: string
@@ -20,6 +20,93 @@ export type CampInstallation = {
   kind: CampSetupKind
   ownerId: string
   contributorIds: string[]
+  decay?: number
+}
+
+export function installationIsClaimed(
+  installation: CampInstallation,
+  livingIds: ReadonlySet<string>,
+): boolean {
+  return livingIds.has(installation.ownerId) ||
+    installation.contributorIds.some((id) => livingIds.has(id))
+}
+
+export function decayUnclaimedInstallations(
+  installations: readonly CampInstallation[],
+  livingIds: ReadonlySet<string>,
+  minutes: number,
+): CampInstallation[] {
+  const rate = SIMULATION_CONFIG.camping.abandonDecayPerMinute
+  return installations.map((installation) => {
+    if (installationIsClaimed(installation, livingIds)) {
+      return installation.decay ? { ...installation, decay: 0 } : installation
+    }
+    return {
+      ...installation,
+      decay: Math.min(100, (installation.decay ?? 0) + minutes * rate),
+    }
+  })
+}
+
+export function isCollectibleCamp(
+  installation: CampInstallation,
+  livingIds: ReadonlySet<string>,
+): boolean {
+  return !installationIsClaimed(installation, livingIds) &&
+    (installation.decay ?? 0) >= SIMULATION_CONFIG.camping.abandonCollectibleDecay
+}
+
+export function abandonVisitorCamp(
+  visitor: { id: string; campsite: CampingCell | null; campingPhase: CampingPhase },
+  installations: readonly CampInstallation[],
+  createId: () => string,
+): CampInstallation[] {
+  const next = installations.map((installation) => {
+    const contributed = installation.contributorIds.includes(visitor.id)
+    const owned = installation.ownerId === visitor.id
+    if (!owned && !contributed) return installation
+    const contributors = installation.contributorIds.filter((id) => id !== visitor.id)
+    if (installation.kind === 'chairs' && contributors.length > 0) {
+      return {
+        ...installation,
+        contributorIds: contributors,
+        ownerId: owned ? contributors[0]! : installation.ownerId,
+      }
+    }
+    return {
+      ...installation,
+      ownerId: '',
+      contributorIds: [],
+      decay: Math.max(installation.decay ?? 0, 20),
+    }
+  })
+  if (
+    !visitor.campsite ||
+    visitor.campingPhase === 'none' ||
+    visitor.campingPhase === 'seeking'
+  ) {
+    return next
+  }
+  if (
+    next.some((installation) =>
+      installation.kind === 'tent' &&
+      installation.cell.x === visitor.campsite!.x &&
+      installation.cell.z === visitor.campsite!.z,
+    )
+  ) {
+    return next
+  }
+  return [
+    ...next,
+    {
+      id: createId(),
+      cell: { ...visitor.campsite },
+      kind: 'tent',
+      ownerId: '',
+      contributorIds: [],
+      decay: 20,
+    },
+  ]
 }
 
 export type CampingVisitor = {
@@ -400,13 +487,18 @@ export class CampingSystem {
   } | null {
     const installations = this.context.getInstallations()
     if (installations.length === 0) return null
-    let best: {
-      route: CampingCell[]
-      target: CampingCell
-      kind: CampSetupKind
-      slot: number
-      capacity: number
-    } | null = null
+    // One occupancy pass and one multi-goal route search. Searching once per
+    // installation made a single social decision run hundreds of A* searches.
+    const occupied = new Map<string, Set<number>>()
+    for (const other of this.context.getVisitors()) {
+      if (other.state !== 'socializing' || !other.campActivityTarget) continue
+      const cell = other.campActivityTarget
+      const key = `${cell.x}:${cell.z}:${cell.elevation}`
+      const slots = occupied.get(key) ?? new Set<number>()
+      slots.add(other.campActivitySlot)
+      occupied.set(key, slots)
+    }
+    const candidates: { setup: CampInstallation; slot: number; capacity: number }[] = []
     for (const setup of installations) {
       const capacity =
         setup.kind === 'chairs'
@@ -414,38 +506,19 @@ export class CampingSystem {
           : setup.kind === 'musicBox'
             ? SIMULATION_CONFIG.camping.musicBoxCapacity
             : SIMULATION_CONFIG.camping.pavilionCapacity
-      const participants = this.context
-        .getVisitors()
-        .filter(
-          (other) =>
-            other.state === 'socializing' &&
-            other.campActivityTarget?.x === setup.cell.x &&
-            other.campActivityTarget.z === setup.cell.z,
-        )
-      if (participants.length >= capacity) continue
-      const usedSlots = new Set(participants.map((participant) => participant.campActivitySlot))
+      const usedSlots = occupied.get(`${setup.cell.x}:${setup.cell.z}:${setup.cell.elevation}`)
+      if ((usedSlots?.size ?? 0) >= capacity) continue
       let slot = 0
-      while (usedSlots.has(slot) && slot < capacity) slot += 1
-      const route = this.context.findPath(
-        {
-          x: visitor.cellX,
-          z: visitor.cellZ,
-          elevation: visitor.cellElevation,
-        },
-        [setup.cell],
-        true,
-      )
-      if (route && (!best || route.length < best.route.length)) {
-        best = {
-          route,
-          target: setup.cell,
-          kind: setup.kind,
-          slot,
-          capacity,
-        }
-      }
+      while (usedSlots?.has(slot) && slot < capacity) slot += 1
+      candidates.push({ setup, slot, capacity })
     }
-    return best
+    if (!candidates.length) return null
+    const start = { x: visitor.cellX, z: visitor.cellZ, elevation: visitor.cellElevation }
+    const route = this.context.findPath(start, candidates.map(({ setup }) => setup.cell), true)
+    if (!route) return null
+    const end = route.at(-1) ?? start
+    const match = candidates.find(({ setup }) => setup.cell.x === end.x && setup.cell.z === end.z && setup.cell.elevation === end.elevation)
+    return match ? { route, target: match.setup.cell, kind: match.setup.kind, slot: match.slot, capacity: match.capacity } : null
   }
 
   removeVisitorInstallations(visitorId: string): void {
@@ -486,8 +559,6 @@ export class CampingSystem {
         return
       }
     }
-    this.removeVisitorInstallations(visitor.id)
-    visitor.campsite = null
     visitor.campingPhase = 'none'
     visitor.hasHandcart = true
     visitor.state = 'leaving'

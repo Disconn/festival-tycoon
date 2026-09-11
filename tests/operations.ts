@@ -1,10 +1,23 @@
 import assert from 'node:assert/strict'
 import { GameState, type GameSnapshot } from '../src/game/GameState'
+import { createScenarioEntrance } from '../src/game/scenario'
 import { emptyStock, orderGoods } from '../src/game/supplyChain'
 import { updateDepotCarriers } from '../src/game/depotCarriers'
 import { createStaffMember } from '../src/game/staff'
 import { StaffSimulation } from '../src/game/staffSimulation'
 import { DeterministicRng } from '../src/game/rng'
+import {
+  abandonVisitorCamp,
+  decayUnclaimedInstallations,
+  isCollectibleCamp,
+} from '../src/game/camping'
+import {
+  denseClusterSize,
+  neighborhoodPeople,
+  panicSpreadChance,
+  spontaneousPanicChance,
+} from '../src/game/visitorBubbles'
+import { SIMULATION_CONFIG } from '../src/game/simulationConfig'
 
 export function testOperations(fixture:(count?:number)=>GameState):void {
   const planning=new GameState(), plan=planning.snapshot as GameSnapshot
@@ -104,5 +117,110 @@ export function testOperations(fixture:(count?:number)=>GameState):void {
   assert.deepEqual(cleaner.workArea,{minX:2,maxX:4,minZ:-20,maxZ:-16})
   assert.ok(game.manageFestival({type:'staffArea',staffId:cleaner.id,from:null,to:null}).ok)
   assert.equal(cleaner.workArea,null)
+
+  const exitGame=fixture(1), leaver=exitGame.snapshot.visitors[0]!, door=createScenarioEntrance(exitGame.snapshot.scenario.worldSize)
+  leaver.state='leaving'
+  leaver.route=[{x:door.x,z:door.z,elevation:2}]
+  leaver.targetId=null
+  leaver.arrivalGroupId=null
+  leaver.cellX=door.x
+  leaver.cellZ=door.z
+  leaver.cellElevation=2
+  leaver.x=door.x+0.5
+  leaver.y=2
+  leaver.z=door.z+0.5
+  for(let n=0;n<8;n++) exitGame.tick(0.25)
+  assert.equal(exitGame.snapshot.visitors.length,0,'guests on the exit path leave the park')
+
+  assert.equal(spontaneousPanicChance(90, 80, 20, 1, 20), 0, 'one packed cell cannot start a mass panic')
+  assert.equal(spontaneousPanicChance(90, 80, 20, 3, 20), 0, 'a thin crush still does not ignite')
+  assert.equal(spontaneousPanicChance(90, 80, 20, 5, 8), 0, 'too few people in the cluster')
+  assert.equal(spontaneousPanicChance(90, 20, 20, 5, 20), 0, 'panic needs prolonged crush stress')
+  assert.ok(spontaneousPanicChance(90, 80, 20, 5, 20) > 0 && spontaneousPanicChance(90, 80, 20, 5, 20) < 0.0001, 'a wide packed crush can ignite, but still rarely')
+  assert.equal(panicSpreadChance(80, 1, 1), 0, 'panic does not jump out of a single cell')
+  assert.ok(panicSpreadChance(80, 1, 4) < 0.04, 'panic spread stays a rare chain reaction')
+  const crowdingAt = (x: number, z: number) => (Math.abs(x) <= 1 && Math.abs(z) <= 1 ? 80 : 10)
+  assert.equal(
+    denseClusterSize({ cellX: 0, cellZ: 0, cellElevation: 0 }, (x, z, elevation) => elevation === 0 ? crowdingAt(x, z) : 0, 64),
+    9,
+  )
+  assert.equal(
+    neighborhoodPeople({ cellX: 0, cellZ: 0, cellElevation: 0 }, (x, z) => x === 0 && z === 0 ? 6 : 2),
+    22,
+  )
+
+  const leftover = abandonVisitorCamp(
+    { id: 'gone', campsite: { x: 4, z: -8, elevation: 0 }, campingPhase: 'ready' },
+    [{ id: 'chairs-1', cell: { x: 5, z: -8, elevation: 0 }, kind: 'chairs', ownerId: 'gone', contributorIds: ['gone'], decay: 0 }],
+    () => 'tent-1',
+  )
+  assert.equal(leftover.filter((item) => item.kind === 'tent').length, 1, 'unpacked tents stay behind')
+  const living = new Set(['other'])
+  assert.ok(leftover.every((item) => isCollectibleCamp(item, living)), 'left-behind camp gear is immediately collectible')
+  const worn = decayUnclaimedInstallations(leftover, living, 80)
+  assert.ok(worn.every((item) => (item.decay ?? 0) > 20))
+  const claimed = decayUnclaimedInstallations(
+    [{ id: 'used', cell: { x: 6, z: -8, elevation: 0 }, kind: 'chairs', ownerId: 'gone', contributorIds: ['gone'], decay: 0 }],
+    new Set(['gone']),
+    80,
+  )
+  assert.ok(claimed.every((item) => (item.decay ?? 0) === 0), 'claimed camp gear does not decay')
+
+  const campGame = fixture(0)
+  const campState = campGame.snapshot as GameSnapshot
+  campState.campingCells.push({ x: 3, z: -18, elevation: 0 })
+  campState.campInstallations.push({
+    id: 'old-tent',
+    cell: { x: 3, z: -18, elevation: 0 },
+    kind: 'tent',
+    ownerId: '',
+    contributorIds: [],
+    decay: 40,
+  })
+  campState.staff.push(createStaffMember('camp-cleaner', 'cleaner', { x: 3, z: -20, elevation: 0 }))
+  for (let n = 0; n < 80; n++) campGame.tick(0.25)
+  assert.equal(
+    campState.campInstallations.some((item) => item.id === 'old-tent'),
+    false,
+    'cleaners remove abandoned tents',
+  )
+
+  const scavenger = createStaffMember('scavenger', 'cleaner', { x: 0, z: 0, elevation: 0 })
+  const litter = [
+    { id: 'l1', kind: 'litter' as const, x: 1, z: 0, elevation: 0, severity: 1, ageMinutes: 0 },
+    { id: 'l2', kind: 'litter' as const, x: 2, z: 0, elevation: 0, severity: 1, ageMinutes: 0 },
+    { id: 'l3', kind: 'litter' as const, x: 3, z: 0, elevation: 0, severity: 1, ageMinutes: 0 },
+  ]
+  const haul = {
+    ...context,
+    staff: [scavenger],
+    incidents: litter,
+    findPath: (_a: any, goals: any[]) => goals.map((point) => ({ ...point })),
+    removeIncident: (id: string) => {
+      const index = litter.findIndex((item) => item.id === id)
+      if (index >= 0) litter.splice(index, 1)
+    },
+  }
+  scavenger.targetId = 'l1'
+  scavenger.state = 'working'
+  ;(staff as any).finishWork(scavenger, haul)
+  assert.equal(scavenger.carryingWaste, 1)
+  assert.equal(scavenger.targetId, 'l2', 'cleaners keep collecting until they hold three items')
+  scavenger.route = []
+  ;(staff as any).finishArrival(scavenger, haul)
+  scavenger.workMinutes = 0
+  ;(staff as any).finishWork(scavenger, haul)
+  assert.equal(scavenger.carryingWaste, 2)
+  assert.equal(scavenger.targetId, 'l3')
+  scavenger.route = []
+  ;(staff as any).finishArrival(scavenger, haul)
+  scavenger.workMinutes = 0
+  ;(staff as any).finishWork(scavenger, haul)
+  assert.equal(scavenger.carryingWaste, 3)
+  assert.ok(
+    scavenger.targetId === 'deposit-bin:bin-1' || scavenger.targetId?.startsWith('dump:'),
+    'a full armful goes to disposal',
+  )
+
   console.log('PASS planned festival start, stand clearance, staff gates, automatic depot delivery, stock conservation and cleaning chain')
 }
