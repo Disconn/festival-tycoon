@@ -134,6 +134,7 @@ app.innerHTML = `
             <button id="toggle-save-menu" aria-expanded="false" aria-haspopup="true">💾 Spielstand ▾</button>
             <div id="save-menu-panel" class="dropdown-menu-panel panel">
               <button id="save">💾 Schnell speichern</button>
+              <button id="save-as" title="Spielstand benennen oder einen vorhandenen überschreiben">💾 Speichern unter …</button>
               <button id="load">📂 Schnell laden</button>
               <button id="save-slots" title="Lokale Spielstände verwalten">🗂️ Spielstände verwalten</button>
               <button id="copy-save" title="Spielstand als Base64 kopieren">⧉ Als Text kopieren</button>
@@ -199,7 +200,10 @@ app.innerHTML = `
       <p class="scenario-hint">
         Der Host rechnet die Simulation. Andere Spieler bauen im selben Park mit.
       </p>
-      <p id="multiplayer-status">Nicht verbunden</p>
+      <div class="multiplayer-status-badge" id="multiplayer-status-badge" data-state="solo">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="multiplayer-status">Singleplayer</span>
+      </div>
       <label class="scenario-field">
         <span>Name</span>
         <input id="multiplayer-name" type="text" maxlength="24" placeholder="Dein Name" />
@@ -221,6 +225,18 @@ app.innerHTML = `
         <ul id="multiplayer-players"></ul>
         <button id="multiplayer-leave" type="button">Trennen</button>
       </div>
+    </aside>
+    <aside id="save-as-panel" class="save-as-panel panel" hidden>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Spielstand speichern</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-save-as" class="panel-close-button" aria-label="Speichern schließen">×</button>
+      </div>
+      <p class="scenario-hint" data-save-as-storage>Spielstände werden geladen …</p>
+      <form data-save-as class="save-as-form"><label class="scenario-field"><span>Name</span><input name="name" type="text" maxlength="40" placeholder="z. B. Samstagabend" required></label><button>Speichern</button></form>
+      <p class="save-slots-message" role="status" data-save-as-message></p>
+      <div class="save-slots-list" data-save-as-list></div>
     </aside>
     <aside id="build-menu" class="build-menu panel" aria-label="Bauwerkzeuge" hidden>
       <div class="build-menu-header panel-header">
@@ -469,12 +485,14 @@ app.innerHTML = `
         <div><label><span>🎪 Festivallust</span><b id="motivation-value">100%</b></label><i><u id="motivation-bar"></u></i></div>
       </div>
     </aside>
-    <aside id="entity-panel" class="visitor-panel entity-panel panel" aria-label="Objektinformationen">
-      <div class="visitor-title">
-        <span id="entity-icon" class="visitor-avatar">🏗️</span>
-        <div><small id="entity-type">Objekt</small><strong id="entity-name">–</strong></div>
-        <button id="close-entity" aria-label="Fenster schließen">×</button>
+    <aside id="entity-panel" class="entity-panel panel" aria-label="Objektinformationen" hidden>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title"><span id="entity-icon">🏗️</span> <span id="entity-name">–</span></h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-entity" class="panel-close-button" aria-label="Fenster schließen">×</button>
       </div>
+      <p class="scenario-hint" id="entity-type">Objekt</p>
       <nav id="entity-tabs" class="entity-tabs">
         <button data-entity-tab="overview" class="active">Übersicht</button>
         <button data-entity-tab="dynamics">Fahrdynamik</button>
@@ -913,6 +931,7 @@ const visitorPageLabel = requireElement<HTMLElement>('#visitor-page-label')
 const followVisitorButton = requireElement<HTMLButtonElement>('#follow-visitor')
 const multiplayerToggle = requireElement<HTMLButtonElement>('#toggle-multiplayer')
 const multiplayerPanel = requireElement<HTMLElement>('#multiplayer-panel')
+const multiplayerStatusBadge = requireElement<HTMLElement>('#multiplayer-status-badge')
 const multiplayerStatus = requireElement<HTMLElement>('#multiplayer-status')
 const multiplayerName = requireElement<HTMLInputElement>('#multiplayer-name')
 const multiplayerCode = requireElement<HTMLInputElement>('#multiplayer-code')
@@ -1084,7 +1103,7 @@ function bindGameState(nextGame: GameState): void {
     }[festivalPhase.phase]
     date.textContent = snapshot.festival.planning ? 'Planung · Festival noch nicht gestartet' :
       `${dayPhaseIcon} Tag ${snapshot.day} · ${festivalPhaseLabel} ${festivalPhase.phaseDay}/${festivalPhase.phaseLength} · ${formatTime(snapshot.minute)}`
-    toggleParkButton.textContent = snapshot.parkOpen ? '🔓 Park schließen' : snapshot.festival.planning || snapshot.festival.finished ? '🔒 Park geschlossen' : '🔒 Park öffnen'
+    toggleParkButton.textContent = snapshot.parkOpen ? '🔓 Park schließen' : snapshot.festival.planning || snapshot.festival.finished ? '🔒 Gelände eröffnen' : '🔒 Park öffnen'
     toggleParkButton.disabled = Boolean(snapshot.festival.planning || snapshot.festival.finished)
     toggleParkButton.title = toggleParkButton.disabled ? 'Start über das Festivalmenü' : ''
     toggleParkButton.classList.toggle('park-closed', !snapshot.parkOpen)
@@ -2529,7 +2548,7 @@ function selectVisitor(visitorId: string): void {
     view.followVisitor(visitorId)
   }
   selectedEntity = null
-  entityPanel.classList.remove('visible')
+  entityPanel.hidden = true
   visitorPanel.classList.add('visible')
   updateVisitorPanel()
 }
@@ -2676,7 +2695,7 @@ function openEntityInfoForBuilding(buildingId: string): void {
   followedVisitorId = null
   view.followVisitor(null)
   visitorPanel.classList.remove('visible')
-  entityPanel.classList.add('visible')
+  entityPanel.hidden = false
   updateEntityPanel()
 }
 
@@ -2687,7 +2706,7 @@ function openEntityInfoForCoaster(coasterId: string): void {
   followedVisitorId = null
   view.followVisitor(null)
   visitorPanel.classList.remove('visible')
-  entityPanel.classList.add('visible')
+  entityPanel.hidden = false
   updateEntityPanel()
 }
 
@@ -3019,7 +3038,7 @@ function drawTelemetryChart(coaster: Coaster): void {
 
 function closeEntityPanel(): void {
   selectedEntity = null
-  entityPanel.classList.remove('visible')
+  entityPanel.hidden = true
 }
 
 function showToast(message: string, isError = false): void {
@@ -3311,7 +3330,10 @@ function readMultiplayerName(): string {
 
 function renderMultiplayerStatus(status: MultiplayerStatus): void {
   const connected = status.connected
-  multiplayerStatus.textContent = status.message || 'Nicht verbunden'
+  multiplayerStatusBadge.dataset.state = connected ? 'online' : status.message ? 'disconnected' : 'solo'
+  multiplayerStatus.textContent = connected
+    ? `Online · ${status.mode === 'host' ? 'Host' : 'Verbunden'} · Raum ${status.code}`
+    : status.message || 'Singleplayer'
   multiplayerToggle.textContent = connected
     ? status.mode === 'host'
       ? `🌐 Host ${status.code}`
@@ -3771,16 +3793,21 @@ function showSaveSlots(slots: ServerSaveSlot[], onServer: boolean): void {
     ? slots.map(slot => `<article data-slot="${slot.id}"><div><strong>${escapeHtml(slot.name)}</strong><small>${formatSaveTime(slot.savedAt)}</small></div><div><button data-load-slot="${slot.id}">Laden</button><button data-overwrite-slot="${slot.id}">Überschreiben</button><button data-delete-slot="${slot.id}" aria-label="${escapeHtml(slot.name)} löschen">×</button></div></article>`).join('')
     : `<p class="save-slots-empty">Noch keine benannten Spielstände ${onServer ? 'auf dem lokalen Server' : 'im Browser'}. Der Button „Speichern“ bleibt der schnelle Einzelspielstand.</p>`
 }
-async function renderSaveSlots(): Promise<void> {
+async function fetchSaveSlots(): Promise<{ slots: ServerSaveSlot[], onServer: boolean }> {
   try {
     serverSaveSlots = await listServerSaves()
-    saveStorageInfo.textContent = 'Bis zu 20 Spielstände liegen lokal im Ordner „saves“ des Spielservers.'
-    showSaveSlots(serverSaveSlots, true)
+    return { slots: serverSaveSlots, onServer: true }
   } catch {
     serverSaveSlots = null
-    saveStorageInfo.textContent = 'Der Spielserver ist nicht erreichbar. Bis zu 20 Spielstände werden stattdessen in diesem Browser gespeichert.'
-    showSaveSlots(GameState.listSaveSlots(), false)
+    return { slots: GameState.listSaveSlots(), onServer: false }
   }
+}
+async function renderSaveSlots(): Promise<void> {
+  const { slots, onServer } = await fetchSaveSlots()
+  saveStorageInfo.textContent = onServer
+    ? 'Bis zu 20 Spielstände liegen lokal im Ordner „saves“ des Spielservers.'
+    : 'Der Spielserver ist nicht erreichbar. Bis zu 20 Spielstände werden stattdessen in diesem Browser gespeichert.'
+  showSaveSlots(slots, onServer)
 }
 async function openSaveSlots(): Promise<void> {
   if (multiplayer.status.mode === 'client') { showToast('Nur der Host kann Spielstände verwalten', true); return }
@@ -3840,6 +3867,70 @@ saveSlotsDialog.addEventListener('click', async event => {
   } catch (error) { saveSlotsMessage.textContent = error instanceof Error ? error.message : 'Spielstand konnte nicht gelöscht werden' }
 })
 document.querySelector<HTMLButtonElement>('#save-slots')?.addEventListener('click', openSaveSlots)
+
+const saveAsPanel = requireElement<HTMLElement>('#save-as-panel')
+const saveAsList = saveAsPanel.querySelector<HTMLElement>('[data-save-as-list]')!
+const saveAsMessage = saveAsPanel.querySelector<HTMLElement>('[data-save-as-message]')!
+const saveAsStorageInfo = saveAsPanel.querySelector<HTMLElement>('[data-save-as-storage]')!
+const saveAsName = saveAsPanel.querySelector<HTMLInputElement>('[name=name]')!
+let saveAsPausedSpeed = 0
+function setSaveAsPanelOpen(open: boolean): void {
+  saveAsPanel.hidden = !open
+  if (open) {
+    saveAsPausedSpeed = game.snapshot.speed
+    if (saveAsPausedSpeed !== 0) game.setSpeed(0)
+  } else if (saveAsPausedSpeed !== 0) {
+    game.setSpeed(saveAsPausedSpeed)
+  }
+}
+async function renderSaveAsSlots(): Promise<void> {
+  const { slots, onServer } = await fetchSaveSlots()
+  saveAsStorageInfo.textContent = onServer
+    ? 'Bis zu 20 Spielstände liegen lokal im Ordner „saves“ des Spielservers.'
+    : 'Der Spielserver ist nicht erreichbar. Bis zu 20 Spielstände werden stattdessen in diesem Browser gespeichert.'
+  saveAsList.innerHTML = slots.length
+    ? slots.map(slot => `<article data-slot="${slot.id}"><div><strong>${escapeHtml(slot.name)}</strong><small>${formatSaveTime(slot.savedAt)}</small></div><div><button data-overwrite-slot="${slot.id}">Überschreiben</button></div></article>`).join('')
+    : `<p class="save-slots-empty">Noch keine benannten Spielstände ${onServer ? 'auf dem lokalen Server' : 'im Browser'}.</p>`
+}
+async function openSaveAs(): Promise<void> {
+  if (multiplayer.status.mode === 'client') { showToast('Nur der Host kann Spielstände verwalten', true); return }
+  saveAsMessage.textContent = ''
+  saveAsName.value = ''
+  setSaveAsPanelOpen(true)
+  await renderSaveAsSlots()
+  saveAsName.focus()
+}
+requireElement<HTMLButtonElement>('#close-save-as').addEventListener('click', () => setSaveAsPanelOpen(false))
+makeDraggable(saveAsPanel.querySelector<HTMLElement>('.panel-header')!, saveAsPanel)
+makeResizable(saveAsPanel)
+saveAsPanel.querySelector<HTMLFormElement>('[data-save-as]')!.addEventListener('submit', async event => {
+  event.preventDefault()
+  try {
+    if (serverSaveSlots) {
+      const saved = await saveServerSave(saveAsName.value, JSON.stringify(game.snapshot))
+      saveAsMessage.textContent = `Spielstand „${saved.name}“ auf dem lokalen Server gespeichert`
+    } else {
+      const result = game.saveSlot(saveAsName.value)
+      saveAsMessage.textContent = result.message
+      if (!result.ok) return
+    }
+    saveAsName.value = ''
+    await renderSaveAsSlots()
+  } catch (error) { saveAsMessage.textContent = error instanceof Error ? error.message : 'Spielstand konnte nicht gespeichert werden' }
+})
+saveAsPanel.addEventListener('click', async event => {
+  const button = (event.target as Element).closest<HTMLButtonElement>('[data-overwrite-slot]'); if (!button) return
+  const id = button.dataset.overwriteSlot!
+  const slot = (serverSaveSlots ?? GameState.listSaveSlots()).find(item => item.id === id)
+  if (!slot) { renderSaveAsSlots(); return }
+  try {
+    if (serverSaveSlots) await saveServerSave(slot.name, JSON.stringify(game.snapshot), id)
+    else { const result = game.saveSlot(slot.name, id); if (!result.ok) throw new Error(result.message) }
+    saveAsMessage.textContent = `Spielstand „${slot.name}“ überschrieben`
+    await renderSaveAsSlots()
+  } catch (error) { saveAsMessage.textContent = error instanceof Error ? error.message : 'Spielstand konnte nicht überschrieben werden' }
+})
+document.querySelector<HTMLButtonElement>('#save-as')?.addEventListener('click', openSaveAs)
 
 const saveTextDialog = document.createElement('dialog')
 saveTextDialog.className = 'save-text-dialog'
@@ -3924,6 +4015,8 @@ followVisitorButton.addEventListener('click', () => {
 document.querySelector<HTMLButtonElement>('#close-entity')?.addEventListener('click', () => {
   closeEntityPanel()
 })
+makeDraggable(entityPanel.querySelector<HTMLElement>('.panel-header')!, entityPanel)
+makeResizable(entityPanel)
 
 document.querySelectorAll<HTMLButtonElement>('[data-entity-tab]').forEach((button) => {
   button.addEventListener('click', () => {
