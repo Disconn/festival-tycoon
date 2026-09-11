@@ -12,7 +12,7 @@ export type CampingPhase =
   | 'resting'
   | 'packing'
 
-export type CampSetupKind = 'chairs' | 'pavilion' | 'musicBox'
+export type CampSetupKind = 'chairs' | 'pavilion' | 'musicBox' | 'tent'
 
 export type CampInstallation = {
   id: string
@@ -20,6 +20,93 @@ export type CampInstallation = {
   kind: CampSetupKind
   ownerId: string
   contributorIds: string[]
+  decay?: number
+}
+
+export function installationIsClaimed(
+  installation: CampInstallation,
+  livingIds: ReadonlySet<string>,
+): boolean {
+  return livingIds.has(installation.ownerId) ||
+    installation.contributorIds.some((id) => livingIds.has(id))
+}
+
+export function decayUnclaimedInstallations(
+  installations: readonly CampInstallation[],
+  livingIds: ReadonlySet<string>,
+  minutes: number,
+): CampInstallation[] {
+  const rate = SIMULATION_CONFIG.camping.abandonDecayPerMinute
+  return installations.map((installation) => {
+    if (installationIsClaimed(installation, livingIds)) {
+      return installation.decay ? { ...installation, decay: 0 } : installation
+    }
+    return {
+      ...installation,
+      decay: Math.min(100, (installation.decay ?? 0) + minutes * rate),
+    }
+  })
+}
+
+export function isCollectibleCamp(
+  installation: CampInstallation,
+  livingIds: ReadonlySet<string>,
+): boolean {
+  return !installationIsClaimed(installation, livingIds) &&
+    (installation.decay ?? 0) >= SIMULATION_CONFIG.camping.abandonCollectibleDecay
+}
+
+export function abandonVisitorCamp(
+  visitor: { id: string; campsite: CampingCell | null; campingPhase: CampingPhase },
+  installations: readonly CampInstallation[],
+  createId: () => string,
+): CampInstallation[] {
+  const next = installations.map((installation) => {
+    const contributed = installation.contributorIds.includes(visitor.id)
+    const owned = installation.ownerId === visitor.id
+    if (!owned && !contributed) return installation
+    const contributors = installation.contributorIds.filter((id) => id !== visitor.id)
+    if (installation.kind === 'chairs' && contributors.length > 0) {
+      return {
+        ...installation,
+        contributorIds: contributors,
+        ownerId: owned ? contributors[0]! : installation.ownerId,
+      }
+    }
+    return {
+      ...installation,
+      ownerId: '',
+      contributorIds: [],
+      decay: Math.max(installation.decay ?? 0, 20),
+    }
+  })
+  if (
+    !visitor.campsite ||
+    visitor.campingPhase === 'none' ||
+    visitor.campingPhase === 'seeking'
+  ) {
+    return next
+  }
+  if (
+    next.some((installation) =>
+      installation.kind === 'tent' &&
+      installation.cell.x === visitor.campsite!.x &&
+      installation.cell.z === visitor.campsite!.z,
+    )
+  ) {
+    return next
+  }
+  return [
+    ...next,
+    {
+      id: createId(),
+      cell: { ...visitor.campsite },
+      kind: 'tent',
+      ownerId: '',
+      contributorIds: [],
+      decay: 20,
+    },
+  ]
 }
 
 export type CampingVisitor = {
@@ -486,8 +573,6 @@ export class CampingSystem {
         return
       }
     }
-    this.removeVisitorInstallations(visitor.id)
-    visitor.campsite = null
     visitor.campingPhase = 'none'
     visitor.hasHandcart = true
     visitor.state = 'leaving'

@@ -1,3 +1,4 @@
+import { autoLineupDuration, planAutoLineup } from './autoLineup'
 import { GENRES, bandGenre, musicTaste, musicAppeal, evolveMusicAudience, type MusicMix } from './musicTaste'
 import { stageDistance, buildingFootprint, stageDesignIssue, stageStats, stagePhase, type StageDesign } from './stageDesign'
 import type { WayType } from './wayTypes'
@@ -74,6 +75,7 @@ export type FestivalAction = InfrastructureAction
   | { type: 'prepare' }
   | { type: 'moveBooking'; id:string; stageId:string; day:number; start:number; duration:number }
   | { type: 'book'; bandId: string; stageId: string; day: number; start: number; duration: number }
+  | { type: 'autoLineup'; duration: number }
   | { type: 'cancel'; id: string }
   | { type: 'order'; kind: Supply; quantity: number; delay: number; depotId?: string }
   | { type: 'upgrade'; kind: Upgrade }
@@ -219,6 +221,22 @@ export function festivalAction(s: GameSnapshot, action: FestivalAction): ActionR
     f.bookings.push({ id: `booking-${f.nextId++}`, bandId: band.id, stageId: action.stageId, day: action.day,
       start: action.start, duration: action.duration, fee: band.fee })
     return { ok: true, message: `${band.name} gebucht – Gage bezahlt` }
+  }
+  if (action.type === 'autoLineup') {
+    if (!s.buildings.some(building => building.kind === 'stage')) return fail('Zuerst eine Bühne bauen')
+    const duration = autoLineupDuration(action.duration)
+    const plan = planAutoLineup(s, duration)
+    if (!plan.length) return fail('Keine freien Slots, passenden Bands oder genug Budget für eine automatische Füllung')
+    let booked = 0
+    let spent = 0
+    for (const item of plan) {
+      const result = festivalAction(s, { type: 'book', ...item })
+      if (!result.ok) break
+      booked += 1
+      spent += BANDS.find(band => band.id === item.bandId)?.fee ?? 0
+    }
+    if (!booked) return fail('Keine freien Slots, passenden Bands oder genug Budget für eine automatische Füllung')
+    return { ok: true, message: `${booked} Auftritt${booked === 1 ? '' : 'e'} automatisch gebucht · ${spent} € Gagen` }
   }
   if (action.type === 'cancel') {
     const b = f.bookings.find(b => b.id === action.id)

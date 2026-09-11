@@ -43,8 +43,22 @@ export function testMusicPlanning(fixture:(count?:number)=>GameState){
   f.lastUpdate=festivalTime(s)-1;updateFestival(s);assert.ok((f.playedMusic?.indie??0)>0);assert.equal(f.playedMusic?.pop,undefined,'unplayed booking has no evolutionary effect')
   s.day=f.startDay+s.dayPlan.leadDays+s.dayPlan.festivalDays;s.minute=1;f.lastUpdate=festivalTime(s)-1;updateFestival(s)
   assert.equal(f.finished,true);assert.ok(f.musicBase!.indie>.125);assert.ok(f.musicBase!.pop<.125)
-  const base=structuredClone(f.musicBase);assert.ok(game.manageFestival({type:'prepare'}).ok);assert.equal(f.enabled,false);assert.equal(s.parkOpen,false);assert.equal(f.bookings.length,0);assert.deepEqual(f.musicBase,base)
+  const base=structuredClone(f.musicBase);  assert.ok(game.manageFestival({type:'prepare'}).ok);assert.equal(f.enabled,false);assert.equal(s.parkOpen,false);assert.equal(f.bookings.length,0);assert.deepEqual(f.musicBase,base)
   assert.ok(game.manageFestival({...book,day:f.startDay+1}).ok);assert.ok(game.manageFestival({type:'prepare'}).ok);assert.equal(f.bookings.length,1,'reopening planning preserves paid bookings')
+  const keptManual=f.bookings[0]!,autoBudget=s.money
+  assert.ok(game.manageFestival({type:'autoLineup',duration:90}).ok)
+  assert.ok(f.bookings.length>=2,'auto lineup fills more than one empty slot')
+  assert.ok(s.money<autoBudget)
+  assert.equal(new Set(f.bookings.map(b=>b.bandId)).size,f.bookings.length,'auto lineup never books a band twice')
+  assert.ok(f.bookings.some(b=>b.id===keptManual.id),'autofill keeps the already paid booking')
+  const kept=f.bookings.length
+  s.dayPlan.offers.stages=s.dayPlan.offers.stages.map(()=>false)
+  assert.equal(game.manageFestival({type:'autoLineup',duration:90}).ok,false,'closed hours block further autofill')
+  assert.equal(f.bookings.length,kept)
+  s.dayPlan.offers.stages=s.dayPlan.offers.stages.map(()=>true)
+  const existing=structuredClone(f.bookings)
+  game.manageFestival({type:'autoLineup',duration:90})
+  assert.ok(existing.every(b=>f.bookings.some(other=>other.id===b.id)),'autofill keeps already paid bookings')
   const restored=new GameState(s);assert.deepEqual(restored.snapshot.festival.musicBase,base);assert.equal(restored.snapshot.visitors[0]!.musicTaste,'indie')
   console.log('PASS eight music tastes, deterministic audience mix, pre-start bookings, atomic rescheduling, closed hours, taste-aware concert choice, saved/networked evolution and next-edition planning')
 }

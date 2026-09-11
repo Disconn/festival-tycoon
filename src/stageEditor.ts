@@ -8,6 +8,7 @@ import { COMPONENTS, BRANDS, PHASE_NAMES, defaultStageDesign, stageDesignIssue, 
 import { createStageModel, animateStageModel, disposeStageModel } from './view/stageModel'
 import type { GameState } from './game/GameState'
 import { makeDraggable } from './dragPanel'
+import { isTextEntryTarget } from './uiFocus'
 import './stageEditor.css'
 const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!))
 export function mountStageEditor(getGame:()=>GameState,toast:(s:string,error?:boolean)=>void){
@@ -121,8 +122,9 @@ export function mountStageEditor(getGame:()=>GameState,toast:(s:string,error?:bo
     const w=viewport.clientWidth,h=viewport.clientHeight;if(renderer!.domElement.clientWidth!==w||renderer!.domElement.clientHeight!==h||renderer!.domElement.width!==Math.floor(w*.7)){renderer!.setSize(w,h);camera.aspect=w/Math.max(1,h);camera.updateProjectionMatrix()}
     controls!.update();if(model){animateStageModel(model,design.phases[phaseIndex()],elapsed,true);updateStageBand(model,'meadow',elapsed,(q('[data-band-preview]') as HTMLInputElement).checked,design);}if(ghost)animateStageModel(ghost,design.phases[phaseIndex()],elapsed,true);if(pickTargets){animateStageModel(pickTargets,design.phases[phaseIndex()],elapsed,true);pickTargets.updateMatrixWorld(true);}renderer!.render(scene,camera);frame=requestAnimationFrame(animate)
   }
-  function close(){panel.hidden=true;cancelAnimationFrame(frame);pointer=null;clearGhost()}
-  panel.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Escape')close();if(e.key.toLowerCase()==='r'&&!(e.target as Element).matches('input,select,textarea')){e.preventDefault();rotate(e.shiftKey?-1:1)}})
+  function syncOpenButton(){document.getElementById('open-stage-editor')?.setAttribute('aria-expanded',String(!panel.hidden))}
+  function close(){panel.hidden=true;cancelAnimationFrame(frame);pointer=null;clearGhost();syncOpenButton()}
+  panel.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Escape')close();if(isTextEntryTarget(e.target))return;if(e.key.toLowerCase()==='r'){e.preventDefault();rotate(e.shiftKey?-1:1)}})
   panel.addEventListener('click',e=>{
     const b=(e.target as Element).closest<HTMLButtonElement>('button');if(!b)return
     if(b.hasAttribute('data-close'))close()
@@ -153,5 +155,5 @@ export function mountStageEditor(getGame:()=>GameState,toast:(s:string,error?:bo
     if(input.matches('[data-linked]')){remember();design.linked=input.checked;refresh()}
   })
   panel.addEventListener('input',e=>{const input=e.target as HTMLInputElement;if(input.matches('[data-width],[data-depth],[data-tiles-width],[data-tiles-depth]')&&input.value!==''&&Number.isInteger(Number(input.value))&&Number(input.value)>=Number(input.min)&&Number(input.value)<=Number(input.max)){input.dispatchEvent(new Event('change',{bubbles:true}))}if(input.dataset.slider){const key=input.dataset.slider as 'intensity';design.phases[phaseIndex()][key]=Number(input.value);q(`[data-value=${key}]`).textContent=input.value+' %'}if(input.matches('[data-show-color]'))design.phases[phaseIndex()].color=input.value;if(input.matches('[data-name]'))design.name=input.value})
-  return {open(id?:string){stageId=id;const existing=id?getGame().snapshot.buildings.find(b=>b.id===id)?.stageDesign:undefined;design=structuredClone(existing??defaultStageDesign());history=[];pointer=null;audienceMode=false;erase=false;hideQuality();serial+=1000;while(design.parts.some(p=>p.id===`part-${serial+1}`))serial++;phase=0;panel.hidden=false;q('[data-apply]').hidden=!id;refreshTemplates();if(!renderer)init();rebuild();last=performance.now();cancelAnimationFrame(frame);frame=requestAnimationFrame(animate);q<HTMLButtonElement>('[data-close]').focus()}}
+  return {isOpen:()=>!panel.hidden,close,open(id?:string){stageId=id;const existing=id?getGame().snapshot.buildings.find(b=>b.id===id)?.stageDesign:undefined;design=structuredClone(existing??defaultStageDesign());history=[];pointer=null;audienceMode=false;erase=false;hideQuality();serial+=1000;while(design.parts.some(p=>p.id===`part-${serial+1}`))serial++;phase=0;panel.hidden=false;q('[data-apply]').hidden=!id;refreshTemplates();if(!renderer)init();rebuild();last=performance.now();cancelAnimationFrame(frame);frame=requestAnimationFrame(animate);syncOpenButton();q<HTMLButtonElement>('[data-close]').focus()}}
 }

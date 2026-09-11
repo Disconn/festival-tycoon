@@ -133,6 +133,30 @@ export function testSupplyChain(fixture: (count?: number) => GameState) {
   advance(15)
   assert.equal(s.festival.deliveries.length, 1, 'minimum stock does not duplicate pending purchases')
 
+  const ingressGame = fixture(0), ingress = ingressGame.snapshot as GameSnapshot
+  ingressGame.addDebugMoney()
+  const edgeZ = -ingress.scenario.worldSize / 2
+  for (const kind of ['drain', 'compact'] as const) assert.ok(ingressGame.manageFestival({ type: 'ground', x: 1, z: -20, kind }).ok)
+  ingress.terrain.heights['1,-20'] = 2
+  for (let z = edgeZ; z <= -20; z++) if (!ingress.logistics.roadCells.some(c => c.x === 0 && c.z === z)) {
+    const result = ingressGame.designateRoad([{ x: 0, z }]); assert.ok(result.ok, `${z}: ${result.message}`)
+  }
+  assert.ok(ingressGame.manageFestival({ type: 'depot', x: 1, z: -20, role: 'delivery' }).ok)
+  for (let x = -3; x <= 2; x += 1) {
+    ingress.logistics.roadVehicles.push({
+      id: `entry-car-${x}`, kind: 'visitorCar', position: { x, z: edgeZ }, cell: { x, z: edgeZ },
+      route: [], state: 'waiting', speed: 0, passengerIds: [], groupId: null, parkingCell: null, target: null,
+      facing: 0, waitMinutes: 0, resumeState: null, lineId: null, nextStopIndex: 0, cargo: 0,
+    })
+  }
+  assert.ok(ingressGame.manageFestival({ type: 'order', kind: 'food', quantity: 50, delay: 0 }).ok)
+  for (let n = 0; n < 91; n++) { ingress.minute += 1; updateSupplyChain(ingress, (a, b) => (ingressGame as any).findPath(a, b)) }
+  const queued = ingress.festival.infrastructure.trucks.find(t => t.deliveryId)
+  assert.ok(queued, 'occupied map-edge cells still spawn a delivery truck')
+  assert.equal(queued!.z, edgeZ - 1, 'truck waits off-map instead of consuming the inbound lane')
+  assert.ok(queued!.path.length > 0, 'off-map truck keeps a route onto the site')
+  assert.equal(ingress.festival.infrastructure.depots[0]!.stock.food, 0)
+
   assert.ok(game.place('wasteBin', 4, -16).ok)
   const bin = s.buildings.find(b => b.kind === 'wasteBin')!
   bin.wasteFill = 12

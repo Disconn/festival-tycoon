@@ -11,6 +11,7 @@ import { groundRectangle } from '../game/ground'
 import { groundInfo } from '../game/ground'
 import { SupplyChainView } from './SupplyChainView'
 import { scenePixelRatio } from './renderResolution'
+import { isTextEntryTarget } from '../uiFocus'
 import {
   AmbientLight,
   BoxGeometry,
@@ -59,6 +60,8 @@ import type { CashEffect, GameSnapshot, PlacedBuilding, Visitor } from '../game/
 import { CampingView } from './CampingView'
 import { FireworksView } from './FireworksView'
 import { CrowdingView } from './CrowdingView'
+import { PanicView } from './PanicView'
+import { visitorBubbleKind } from '../game/visitorBubbles'
 import { StaffView } from './StaffView'
 import { MedicalView } from './MedicalView'
 import { IncidentView } from './IncidentView'
@@ -157,6 +160,7 @@ export class WorldView {
   private campingView = new CampingView()
   private fireworksView = new FireworksView()
   private crowdingView = new CrowdingView()
+  private panicView = new PanicView()
   private staffView = new StaffView()
   private medicalView = new MedicalView()
   private wasteView = new WasteView()
@@ -171,6 +175,7 @@ export class WorldView {
   private previousOverlays = [false, false, false]
   setLogisticsMode(enabled: boolean): void {
     const groups = [this.crowdingView.group, this.attractivenessView.group, this.partyMoodView.group]
+    this.panicView.group.visible = !enabled
     if (enabled && !this.logisticsMode) { this.previousOverlays = groups.map(g => g.visible); this.followVisitor(null) }
     if (!enabled && this.logisticsMode) groups.forEach((g, n) => g.visible = this.previousOverlays[n]!)
     this.logisticsMode = enabled
@@ -192,6 +197,7 @@ export class WorldView {
   private visitorColor = new Color()
   private visitorSkinColor = new Color(0xf0bd8c)
   private visitorPantsColor = new Color(0x31445b)
+  private visitorPanicTint = new Color(0xc62828)
   private emotionInstances = new Map<string, InstancedMesh>()
   private emotionPose = new Object3D()
   private visitorHandcarts: Group[] = []
@@ -380,6 +386,7 @@ export class WorldView {
       this.campingView.group,
       this.fireworksView.group,
       this.crowdingView.group,
+      this.panicView.group,
       this.medicalView.group,
       this.wasteView.group,
       this.pathFlowView.group,
@@ -512,10 +519,12 @@ export class WorldView {
     )
     this.fireworksView.update(snapshot.fireworkEffects)
     if (dataChanged) this.crowdingView.update(snapshot.crowding)
+    this.panicView.update(snapshot.visitors, snapshot.crowding)
     if (this.logisticsMode) {
       this.crowdingView.group.visible = false
       this.attractivenessView.group.visible = false
       this.partyMoodView.group.visible = false
+      this.panicView.group.visible = false
     }
     this.updatePreview()
   }
@@ -1890,7 +1899,10 @@ export class WorldView {
         seed = Number(visitor.id.replace(/\D/g, '').slice(-3)) || index
         this.visitorSeedCache.set(visitor.id, seed)
       }
-      const pace = streaking
+      const fleeing = visitor.isPanicking || visitor.state === 'panicking'
+      const pace = fleeing
+        ? 2.2
+        : streaking
         ? 2.15
         : visitor.emotion === 'angry'
           ? 1.45
@@ -2005,7 +2017,7 @@ export class WorldView {
             ? Math.sin(phase * 0.5) * 0.16 * intoxication
             : 0
       const strength =
-        visitor.emotion === 'angry' ? 0.9 : visitor.emotion === 'sad' ? 0.32 : 0.65
+        fleeing ? 1.2 : visitor.emotion === 'angry' ? 0.9 : visitor.emotion === 'sad' ? 0.32 : 0.65
       const limbSwing =
         visitor.state === 'sleeping' || visitor.state === 'medical-transport'
           ? 0
@@ -2013,11 +2025,15 @@ export class WorldView {
             ? Math.PI * 0.42
             : stride * (visitor.isDancing ? 1.15 : strength)
       const headTilt = visitor.emotion === 'sad' ? 0.35 : 0
-      const shirtColor = streaking ? this.visitorSkinColor : this.visitorColor.setHex(visitor.color)
+      const shirtColor = streaking
+        ? this.visitorSkinColor
+        : fleeing
+          ? this.visitorColor.setHex(visitor.color).lerp(this.visitorPanicTint, 0.55)
+          : this.visitorColor.setHex(visitor.color)
       const legColor = streaking ? this.visitorSkinColor : this.visitorPantsColor
 
       this.visitorPose.position.set(displayX, displayY, displayZ)
-      this.visitorPose.rotation.set(0, targetRotation, tilt)
+      this.visitorPose.rotation.set(fleeing ? 0.28 : 0, targetRotation, fleeing ? 0 : tilt)
       this.visitorPose.scale.set(1, scaleY, 1)
       this.visitorPose.updateMatrix()
       this.setVisitorLimb(index, this.visitorBodyInstances, 0, 0.36, 0, 0, shirtColor)
@@ -2031,21 +2047,21 @@ export class WorldView {
         hideLimbs(index)
       }
 
-      const visualEmotion =
-        visitor.state === 'sleeping'
-          ? 'sleeping'
-          : visitor.state === 'socializing'
-            ? 'talking'
-            : visitor.isDancing
-              ? 'dancing'
-              : visitor.isConversing
-                ? 'talking'
-                : visitor.emotion
-      const emotionBatch = this.getEmotionBatch(visualEmotion, visitors.length)
-      this.emotionPose.position.set(displayX, displayY + 0.82, displayZ)
-      this.emotionPose.quaternion.copy(this.camera.quaternion)
-      this.emotionPose.updateMatrix()
-      emotionBatch.setMatrixAt(emotionBatch.count++, this.emotionPose.matrix)
+      const bubble = visitorBubbleKind(visitor)
+      if (bubble) {
+        const emotionBatch = this.getEmotionBatch(bubble, visitors.length)
+        const size = bubble === 'panic' ? 1.55 : bubble === 'crushed' ? 1.2 : 1
+        this.emotionPose.position.set(
+          displayX,
+          displayY + (bubble === 'panic' ? 1.02 : 0.82),
+          displayZ,
+        )
+        this.emotionPose.scale.setScalar(size)
+        this.emotionPose.quaternion.copy(this.camera.quaternion)
+        this.emotionPose.updateMatrix()
+        emotionBatch.setMatrixAt(emotionBatch.count++, this.emotionPose.matrix)
+        this.emotionPose.scale.setScalar(1)
+      }
       if (visitor.hasHandcart && !streaking) {
         const cart = this.getVisitorHandcart(cartIndex)
         cartIndex += 1
@@ -2222,6 +2238,8 @@ export class WorldView {
       sleeping: '💤',
       talking: '💬',
       dancing: '🎶',
+      crushed: '😣',
+      panic: '😱',
     }
     const canvas = document.createElement('canvas')
     canvas.width = 128
@@ -2379,6 +2397,7 @@ export class WorldView {
       { passive: false },
     )
     window.addEventListener('keydown', event => {
+      if (isTextEntryTarget(event.target) || isTextEntryTarget(document.activeElement)) return
       if (event.key !== 'Escape' || !this.groundAreaStart) return
       this.setGroundAreaTool(this.groundAreaHandler)
       this.groundAreaCancelled = true; this.leftPointerDown = false; this.pointerDownCell = null
