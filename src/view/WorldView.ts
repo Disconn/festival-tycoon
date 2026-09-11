@@ -264,6 +264,11 @@ export class WorldView {
   private onCellHover: HoverHandler
   private onStaffClick: VisitorHandler = () => {}
   private followedStaffId: string | null = null
+  private minimapStaffId: string | null = null
+  private minimapCanvas: HTMLCanvasElement | null = null
+  private minimapRenderer: WebGLRenderer | null = null
+  private minimapCamera: OrthographicCamera | null = null
+  private minimapViewHeight = 7
   private workAreaOverlay: InstancedMesh | null = null
   private workAreaStamp = ''
   private onVisitorClick: VisitorHandler
@@ -279,9 +284,12 @@ export class WorldView {
   private interpolatedTick = -1
   private previousVisitorPositions = new Map<string, { x: number; y: number; z: number }>()
   private currentVisitorPositions = new Map<string, { x: number; y: number; z: number }>()
+  private visitorSeedCache = new Map<string, number>()
   private prevTrainDistance = new Map<string, number>()
   private currTrainDistance = new Map<string, number>()
   private buildingFingerprint = ''
+  private lastGroundRevision = -1
+  private cachedFootwayFingerprint = ''
   private coasterFingerprint = ''
   private wasteBins: PlacedBuilding[] = []
   private lightingBuildings: PlacedBuilding[] = []
@@ -413,7 +421,11 @@ export class WorldView {
     const dataChanged = worldRevision === undefined || snapshot !== this.lastVisualSnapshot || revision !== this.lastVisualRevision
     this.lastVisualSnapshot = snapshot
     this.lastVisualRevision = revision
-    const fingerprint = dataChanged ? this.buildingFingerprintOf(snapshot.buildings) + JSON.stringify(Object.entries(snapshot.festival.infrastructure.ground).filter(([, g]) => g.footway).map(([k, g]) => [k, g.footway])) : this.buildingFingerprint
+    if (dataChanged && (worldRevision === undefined || worldRevision !== this.lastGroundRevision)) {
+      this.lastGroundRevision = worldRevision ?? this.lastGroundRevision
+      this.cachedFootwayFingerprint = JSON.stringify(Object.entries(snapshot.festival.infrastructure.ground).filter(([, g]) => g.footway).map(([k, g]) => [k, g.footway]))
+    }
+    const fingerprint = dataChanged ? this.buildingFingerprintOf(snapshot.buildings) + this.cachedFootwayFingerprint : this.buildingFingerprint
 
     this.currentSnapshot = snapshot
     this.syncInterpolation(snapshot, renderAlpha)
@@ -489,10 +501,13 @@ export class WorldView {
     this.cashEffects.visible = !this.logisticsMode
     if (!this.logisticsMode) { this.updateVisitors(snapshot.visitors); this.updateVisitorFollow(snapshot.visitors) }
     if(this.followedStaffId) {
-      const carrier=snapshot.festival.infrastructure.routes.find(r=>r.id===this.followedStaffId)
-      const member=snapshot.staff.find(p=>p.id===this.followedStaffId) ?? this.supplyChainView.getCarrierPosition(this.followedStaffId) ?? (carrier ? {x:carrier.position.x+.5,y:carrier.position.elevation,z:carrier.position.z+.5} : null)
-      if(member) {this.cameraTarget.set(member.x,member.y,member.z);this.updateCamera()}
+      const position=this.resolveStaffPosition(this.followedStaffId,snapshot)
+      if(position) {this.cameraTarget.set(position.x,position.y,position.z);this.updateCamera()}
       else this.followedStaffId=null
+    }
+    if(this.minimapStaffId) {
+      const position=this.resolveStaffPosition(this.minimapStaffId,snapshot)
+      if(position) this.renderMinimap(position.x,position.z)
     }
     this.updateCashEffects(snapshot.cashEffects)
     this.updateSoundWaves(
@@ -550,9 +565,12 @@ export class WorldView {
     this.terrainFingerprint = ''
     this.buildingFingerprint = ''
     this.coasterFingerprint = ''
+    this.lastGroundRevision = -1
+    this.cachedFootwayFingerprint = ''
     this.interpolatedTick = -1
     this.previousVisitorPositions.clear()
     this.currentVisitorPositions.clear()
+    this.visitorSeedCache.clear()
     this.prevTrainDistance.clear()
     this.currTrainDistance.clear()
     this.lastDayMinute = Number.NEGATIVE_INFINITY
@@ -638,6 +656,56 @@ export class WorldView {
 
   setStaffClickHandler(handler: VisitorHandler): void { this.onStaffClick = handler }
   followStaff(id: string | null): void { this.followedStaffId = id; if(id) this.followedVisitorId = null }
+
+  private resolveStaffPosition(id: string, snapshot: Readonly<GameSnapshot>): { x: number; y: number; z: number } | null {
+    const carrier = snapshot.festival.infrastructure.routes.find((r) => r.id === id)
+    return (
+      snapshot.staff.find((p) => p.id === id) ??
+      this.supplyChainView.getCarrierPosition(id) ??
+      (carrier ? { x: carrier.position.x + 0.5, y: carrier.position.elevation, z: carrier.position.z + 0.5 } : null)
+    )
+  }
+
+  mountMinimap(canvas: HTMLCanvasElement): void {
+    this.minimapCanvas = canvas
+    this.minimapRenderer = new WebGLRenderer({ canvas, antialias: true, alpha: true })
+    this.minimapRenderer.shadowMap.enabled = false
+    this.minimapCamera = new OrthographicCamera()
+  }
+
+  setMinimapTarget(id: string | null): void { this.minimapStaffId = id }
+
+  zoomMinimap(factor: number): void {
+    this.minimapViewHeight = MathUtils.clamp(this.minimapViewHeight * factor, 2.5, 16)
+  }
+
+  private renderMinimap(x: number, z: number): void {
+    const canvas = this.minimapCanvas
+    const renderer = this.minimapRenderer
+    const camera = this.minimapCamera
+    if (!canvas || !renderer || !camera) return
+    const width = canvas.clientWidth
+    const height = canvas.clientHeight
+    if (width === 0 || height === 0) return
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2)
+    if (canvas.width !== Math.round(width * pixelRatio) || canvas.height !== Math.round(height * pixelRatio)) {
+      renderer.setPixelRatio(pixelRatio)
+      renderer.setSize(width, height, false)
+    }
+    const aspect = width / height
+    const viewHeight = this.minimapViewHeight
+    camera.left = (-viewHeight * aspect) / 2
+    camera.right = (viewHeight * aspect) / 2
+    camera.top = viewHeight / 2
+    camera.bottom = -viewHeight / 2
+    camera.near = 0.1
+    camera.far = 100
+    const horizontalDistance = 24
+    camera.position.set(x + Math.sin(this.cameraAngle) * horizontalDistance, 20, z + Math.cos(this.cameraAngle) * horizontalDistance)
+    camera.lookAt(x, 0, z)
+    camera.updateProjectionMatrix()
+    renderer.render(this.scene, camera)
+  }
 
   followVisitor(visitorId: string | null): void {
     if (visitorId) this.followedStaffId = null
@@ -1821,11 +1889,18 @@ export class WorldView {
     if (meshes.length === 0) return
     if (this.visitorInstanceIds.length !== visitors.length) {
       this.visitorInstanceIds = visitors.map((visitor) => visitor.id)
+      if (this.visitorSeedCache.size > visitors.length * 2 + 32) {
+        const activeIds = new Set(this.visitorInstanceIds)
+        for (const id of this.visitorSeedCache.keys()) {
+          if (!activeIds.has(id)) this.visitorSeedCache.delete(id)
+        }
+      }
     } else {
       for (let index = 0; index < visitors.length; index += 1) {
         this.visitorInstanceIds[index] = visitors[index]!.id
       }
     }
+    let buildingsById: Map<string, PlacedBuilding> | null = null
     const now = performance.now()
     const lodRadius = 14 / Math.max(0.65, this.zoom)
     for (const batch of this.emotionInstances.values()) batch.count = 0
@@ -1868,7 +1943,11 @@ export class WorldView {
       const distance = Math.hypot(dx, dz)
       const detailed = distance < lodRadius
       const intoxication = Math.max(0, Math.min(1, (visitor.alcoholLevel - 25) / 60))
-      const seed = Number(visitor.id.replace(/\D/g, '').slice(-3)) || index
+      let seed = this.visitorSeedCache.get(visitor.id)
+      if (seed === undefined) {
+        seed = Number(visitor.id.replace(/\D/g, '').slice(-3)) || index
+        this.visitorSeedCache.set(visitor.id, seed)
+      }
       const pace = streaking
         ? 2.15
         : visitor.emotion === 'angry'
@@ -1931,10 +2010,11 @@ export class WorldView {
           { x: 0, z: -1 },
           { x: -1, z: 0 },
         ]
+        if (!buildingsById && this.currentSnapshot) {
+          buildingsById = new Map(this.currentSnapshot.buildings.map((building) => [building.id, building]))
+        }
         const benchRotation = visitor.targetId
-          ? this.currentSnapshot?.buildings.find(
-              (building) => building.id === visitor.targetId,
-            )?.rotation ?? 0
+          ? buildingsById?.get(visitor.targetId)?.rotation ?? 0
           : 0
         const direction = directions[benchRotation]!
         activityOffsetX =

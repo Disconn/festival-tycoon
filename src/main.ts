@@ -1,4 +1,5 @@
 import { GENRES } from './game/musicTaste'
+import { makeDraggable, makeResizable } from './dragPanel'
 import { mountStageEditor } from './stageEditor'
 import { stageStats } from './game/stageDesign'
 import { mountStaffDetails } from './staffDetailsUI'
@@ -69,7 +70,7 @@ app.innerHTML = `
       <div class="brand">
         <span class="brand-mark">F</span>
         <div><strong>Festival Tycoon</strong><small>Prototype 0.1</small></div>
-        <button id="toggle-scenario" class="scenario-toggle" aria-expanded="false">Szenario ▾</button>
+        <button id="toggle-scenario" class="scenario-toggle" aria-expanded="false">⚙️ Szenario</button>
   </div>
       <div class="stats">
         <span>💰 <strong id="money">0 €</strong></span>
@@ -80,29 +81,76 @@ app.innerHTML = `
         <span>📅 <strong id="date">Tag 1 · 08:00</strong></span>
   </div>
       <div class="game-actions">
-        <button id="open-logistics">Logistik</button>
-        <button id="open-day-plan">Tagesplan</button>
-        <button id="open-complaints">Beschwerden</button>
-        <button id="open-visitors">Besucher</button>
-        <button id="open-staff">Personal</button>
-        <div class="debug-menu">
-          <button id="toggle-debug-menu" aria-expanded="false">Debug ▾</button>
-          <div id="debug-menu-panel" class="debug-menu-panel panel">
-            <button id="debug-money" title="Debug-Geld hinzufügen">💰 +100.000 €</button>
-            <button id="debug-remove-cars" title="Besucherautos entfernen">🚗 Autos entfernen & Gäste heimschicken</button>
+        <div id="action-group-festival" class="action-group" aria-label="Festival"></div>
+        <div class="action-divider"></div>
+        <div id="action-group-build" class="action-group" aria-label="Bauwerkzeuge">
+          <button id="open-info">🔎 Info</button>
+          <button id="open-build-menu" aria-expanded="false">🏗️ Bauen</button>
+          <div class="dropdown-menu">
+            <button id="toggle-bulldoze-menu" aria-expanded="false">🚜 Abriss</button>
+            <div id="bulldoze-menu-panel" class="bulldoze-panel panel">
+              <div class="bulldoze-panel-header panel-header">
+                <span class="panel-drag-line" aria-hidden="true"></span>
+                <h3 class="panel-header-title">Abriss-Fläche</h3>
+                <span class="panel-drag-line" aria-hidden="true"></span>
+                <button data-close-bulldoze-menu class="panel-close-button" aria-label="Abriss schließen">×</button>
+              </div>
+              <div class="bulldoze-size-grid">
+                <button data-bulldoze-size="1" class="active">1×1</button>
+                <button data-bulldoze-size="2">2×2</button>
+                <button data-bulldoze-size="3">3×3</button>
+                <button data-bulldoze-size="4">4×4</button>
+                <button data-bulldoze-size="5">5×5</button>
+                <button data-bulldoze-size="6">6×6</button>
+                <button data-bulldoze-size="7">7×7</button>
+                <button data-bulldoze-size="8">8×8</button>
+              </div>
+            </div>
           </div>
         </div>
-        <button id="toggle-park">Park schließen</button>
-        <button id="toggle-multiplayer" aria-expanded="false">Mehrspieler</button>
-        <button id="save">Speichern</button>
-        <button id="copy-save" class="save-text-icon" title="Spielstand als Base64 kopieren" aria-label="Spielstand als Base64 kopieren">⧉</button>
-        <button id="load">Laden</button>
-        <button id="save-slots" title="Lokale Spielstände verwalten">Spielstände</button>
-        <button id="paste-save" class="save-text-icon" title="Base64-Spielstand einfügen" aria-label="Base64-Spielstand einfügen">▣</button>
+        <div class="action-divider"></div>
+        <div id="action-group-views" class="action-group" aria-label="Ansichten">
+          <button id="open-logistics">🚚 Logistik</button>
+          <button id="open-day-plan">📅 Tagesplan</button>
+          <button id="open-complaints">📣 Beschwerden</button>
+          <button id="open-visitors">👥 Besucher</button>
+          <button id="open-staff">🧑‍💼 Personal</button>
+        </div>
+        <div class="action-divider"></div>
+        <div id="action-group-session" class="action-group" aria-label="Sitzung">
+          <button id="toggle-park">🔓 Park schließen</button>
+          <button id="toggle-multiplayer" aria-expanded="false">🌐 Mehrspieler</button>
+        </div>
+        <div class="action-divider"></div>
+        <div id="action-group-tools" class="action-group" aria-label="Menüs">
+          <div class="debug-menu">
+            <button id="toggle-debug-menu" aria-expanded="false">🐞 Debug ▾</button>
+            <div id="debug-menu-panel" class="debug-menu-panel panel">
+              <button id="debug-money" title="Debug-Geld hinzufügen">💰 +100.000 €</button>
+              <button id="debug-remove-cars" title="Besucherautos entfernen">🚗 Autos entfernen & Gäste heimschicken</button>
+            </div>
+          </div>
+          <div class="dropdown-menu">
+            <button id="toggle-save-menu" aria-expanded="false" aria-haspopup="true">💾 Spielstand ▾</button>
+            <div id="save-menu-panel" class="dropdown-menu-panel panel">
+              <button id="save">💾 Schnell speichern</button>
+              <button id="save-as" title="Spielstand benennen oder einen vorhandenen überschreiben">💾 Speichern unter …</button>
+              <button id="load">📂 Schnell laden</button>
+              <button id="save-slots" title="Lokale Spielstände verwalten">🗂️ Spielstände verwalten</button>
+              <button id="copy-save" title="Spielstand als Base64 kopieren">⧉ Als Text kopieren</button>
+              <button id="paste-save" title="Base64-Spielstand einfügen">📋 Text einfügen</button>
+            </div>
+          </div>
+        </div>
       </div>
     </header>
     <aside id="scenario-panel" class="scenario-panel panel" hidden>
-      <h2>Szenario</h2>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Szenario</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-scenario" class="panel-close-button" aria-label="Szenario schließen">×</button>
+      </div>
       <p class="scenario-hint">Diese Werte gelten für ein neues Spiel und werden mitgespeichert.</p>
       <label class="scenario-field"><span>Umgebung</span><select id="scenario-environment">${Object.entries(ENVIRONMENTS).map(([id, e]) => `<option value="${id}">${e.name}</option>`).join('')}</select></label>
       <p id="scenario-ground-details" class="scenario-hint"></p>
@@ -143,11 +191,19 @@ app.innerHTML = `
       <button id="start-scenario" type="button">Neues Szenario starten</button>
     </aside>
     <aside id="multiplayer-panel" class="multiplayer-panel panel" hidden>
-      <h2>Mehrspieler</h2>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Mehrspieler</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-multiplayer" class="panel-close-button" aria-label="Mehrspieler schließen">×</button>
+      </div>
       <p class="scenario-hint">
         Der Host rechnet die Simulation. Andere Spieler bauen im selben Park mit.
       </p>
-      <p id="multiplayer-status">Nicht verbunden</p>
+      <div class="multiplayer-status-badge" id="multiplayer-status-badge" data-state="solo">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="multiplayer-status">Singleplayer</span>
+      </div>
       <label class="scenario-field">
         <span>Name</span>
         <input id="multiplayer-name" type="text" maxlength="24" placeholder="Dein Name" />
@@ -170,8 +226,37 @@ app.innerHTML = `
         <button id="multiplayer-leave" type="button">Trennen</button>
       </div>
     </aside>
-    <aside class="build-menu panel" aria-label="Bauwerkzeuge">
-      <h2>Bauen</h2>
+    <aside id="save-as-panel" class="save-as-panel panel" hidden>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Spielstand speichern</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-save-as" class="panel-close-button" aria-label="Speichern schließen">×</button>
+      </div>
+      <p class="scenario-hint" data-save-as-storage>Spielstände werden geladen …</p>
+      <form data-save-as class="save-as-form"><label class="scenario-field"><span>Name</span><input name="name" type="text" maxlength="40" placeholder="z. B. Samstagabend" required></label><button>Speichern</button></form>
+      <p class="save-slots-message" role="status" data-save-as-message></p>
+      <div class="save-slots-list" data-save-as-list></div>
+    </aside>
+    <aside id="save-slots-panel" class="save-slots-panel panel" hidden>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Lokale Spielstände</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button data-close class="panel-close-button" aria-label="Spielstände schließen">×</button>
+      </div>
+      <p class="scenario-hint" data-save-storage>Spielstände werden geladen …</p>
+      <form data-save-slot class="save-as-form"><label class="scenario-field"><span>Name</span><input name="name" type="text" maxlength="40" placeholder="z. B. Samstagabend" required></label><button>Neuen Spielstand speichern</button></form>
+      <p class="save-slots-message" role="status"></p>
+      <div class="save-slots-list"></div>
+    </aside>
+    <aside id="build-menu" class="build-menu panel" aria-label="Bauwerkzeuge" hidden>
+      <div class="build-menu-header panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Bauen</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button data-close-build-menu class="panel-close-button" aria-label="Bauen schließen">×</button>
+      </div>
       <div id="path-tools" class="tools"></div>
       <button id="toggle-path-editor" class="path-editor-launch">🛠 Weg-Editor</button>
       <div class="tool-divider"></div>
@@ -263,7 +348,6 @@ app.innerHTML = `
       </div>
       <div class="tool-divider"></div>
       <button class="tool" data-tool="bulldoze"><span>🚜</span><em>Abriss</em><kbd>8</kbd></button>
-      <button class="tool" data-tool="inspect"><span>🔎</span><em>Info</em><kbd>9</kbd></button>
     </aside>
     <aside id="path-construction" class="path-construction panel" aria-label="Wege-Editor">
       <div class="construction-title">
@@ -413,12 +497,14 @@ app.innerHTML = `
         <div><label><span>🎪 Festivallust</span><b id="motivation-value">100%</b></label><i><u id="motivation-bar"></u></i></div>
       </div>
     </aside>
-    <aside id="entity-panel" class="visitor-panel entity-panel panel" aria-label="Objektinformationen">
-      <div class="visitor-title">
-        <span id="entity-icon" class="visitor-avatar">🏗️</span>
-        <div><small id="entity-type">Objekt</small><strong id="entity-name">–</strong></div>
-        <button id="close-entity" aria-label="Fenster schließen">×</button>
+    <aside id="entity-panel" class="entity-panel panel" aria-label="Objektinformationen" hidden>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title"><span id="entity-icon">🏗️</span> <span id="entity-name">–</span></h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-entity" class="panel-close-button" aria-label="Fenster schließen">×</button>
       </div>
+      <p class="scenario-hint" id="entity-type">Objekt</p>
       <nav id="entity-tabs" class="entity-tabs">
         <button data-entity-tab="overview" class="active">Übersicht</button>
         <button data-entity-tab="dynamics">Fahrdynamik</button>
@@ -473,10 +559,11 @@ app.innerHTML = `
       </section>
     </aside>
     <aside id="day-plan-panel" class="day-plan-panel panel" aria-label="Tagesplanung">
-      <div class="visitor-title">
-        <span class="visitor-avatar">🗓️</span>
-        <div><small>Festivalbetrieb</small><strong>Tagesplan</strong></div>
-        <button id="close-day-plan" aria-label="Tagesplan schließen">×</button>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Tagesplan</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-day-plan" class="panel-close-button" aria-label="Tagesplan schließen">×</button>
       </div>
       <div class="festival-cycle-controls">
         <label>Vorlauf <input id="festival-lead-days" type="number" min="0" max="14" /></label>
@@ -498,20 +585,22 @@ app.innerHTML = `
       <p id="day-plan-status" class="day-plan-status"></p>
     </aside>
     <aside id="complaints-panel" class="complaints-panel panel" aria-label="Beschwerdemanagement">
-      <div class="visitor-title">
-        <span class="visitor-avatar">📣</span>
-        <div><small>Gästeservice</small><strong>Beschwerden</strong></div>
-        <button id="close-complaints" aria-label="Beschwerden schließen">×</button>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Beschwerden</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-complaints" class="panel-close-button" aria-label="Beschwerden schließen">×</button>
       </div>
       <p id="complaints-summary" class="complaints-summary"></p>
       <div class="complaints-head"><span>Thema</span><b>Aktuell</b><b>Letztes Festival</b></div>
       <div id="complaints-list" class="complaints-list"></div>
     </aside>
     <aside id="visitor-overview-panel" class="visitor-overview-panel panel" aria-label="Besucherübersicht">
-      <div class="visitor-title">
-        <span class="visitor-avatar">👥</span>
-        <div><small>Parkverwaltung</small><strong>Alle Besucher</strong></div>
-        <button id="close-visitor-overview" aria-label="Besucherübersicht schließen">×</button>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Alle Besucher</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-visitor-overview" class="panel-close-button" aria-label="Besucherübersicht schließen">×</button>
       </div>
       <div class="visitor-overview-controls">
         <input id="visitor-thought-filter" type="search" placeholder="Gedanken durchsuchen …" />
@@ -543,18 +632,20 @@ app.innerHTML = `
       </div>
     </aside>
     <aside id="staff-panel" class="staff-panel panel" aria-label="Personalverwaltung">
-      <div class="visitor-title">
-        <span class="visitor-avatar">👷</span>
-        <div><small>Verwaltung</small><strong>Eingestelltes Personal</strong></div>
-        <button id="close-staff" aria-label="Personal schließen">×</button>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Eingestelltes Personal</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-staff" class="panel-close-button" aria-label="Personal schließen">×</button>
       </div>
       <div id="staff-list" class="staff-list"></div>
     </aside>
     <aside id="logistics-panel" class="day-plan-panel panel logistics-panel" aria-label="Logistikverwaltung">
-      <div class="visitor-title">
-        <span class="visitor-avatar">🚚</span>
-        <div><small>Verwaltung</small><strong>Transport & Logistik</strong></div>
-        <button id="close-logistics" aria-label="Logistik schließen">×</button>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Transport & Logistik</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-logistics" class="panel-close-button" aria-label="Logistik schließen">×</button>
       </div>
       <div class="logistics-management-tabs">
         <button data-logistics-tab="overview" class="active">Übersicht</button>
@@ -576,6 +667,17 @@ app.innerHTML = `
     <div id="toast" role="status" aria-live="polite"></div>
   </main>
 `
+
+// .game-actions wraps onto extra rows whenever the buttons don't fit on one
+// line, so .topbar grows taller than the fixed "top" offsets .build-menu /
+// .crowding-panel use assume. Track the topbar's real rendered height and
+// expose it as a CSS variable so those panels always start below it,
+// however many rows it currently wraps to.
+const topbarElement = requireElement<HTMLElement>('.topbar')
+new ResizeObserver(([entry]) => {
+  const bottom = entry!.target.getBoundingClientRect().bottom
+  document.documentElement.style.setProperty('--topbar-gap-top', `${Math.round(bottom + 12)}px`)
+}).observe(topbarElement)
 
 const pathTools = requireElement<HTMLDivElement>('#path-tools')
 const supplyTools = requireElement<HTMLDivElement>('#supply-tools')
@@ -814,6 +916,10 @@ const complaintsPanel = requireElement<HTMLElement>('#complaints-panel')
 const complaintsSummary = requireElement<HTMLElement>('#complaints-summary')
 const complaintsList = requireElement<HTMLElement>('#complaints-list')
 const logisticsPanel = requireElement<HTMLElement>('#logistics-panel')
+for (const panel of [staffPanel, visitorOverviewPanel, dayPlanPanel, complaintsPanel, logisticsPanel]) {
+  makeDraggable(panel.querySelector<HTMLElement>('.panel-header')!, panel)
+  makeResizable(panel)
+}
 const logisticsOverview = requireElement<HTMLElement>('#logistics-overview')
 const logisticsRoutes = requireElement<HTMLElement>('#logistics-routes')
 const busLineDepot = requireElement<HTMLSelectElement>('#bus-line-depot')
@@ -837,6 +943,7 @@ const visitorPageLabel = requireElement<HTMLElement>('#visitor-page-label')
 const followVisitorButton = requireElement<HTMLButtonElement>('#follow-visitor')
 const multiplayerToggle = requireElement<HTMLButtonElement>('#toggle-multiplayer')
 const multiplayerPanel = requireElement<HTMLElement>('#multiplayer-panel')
+const multiplayerStatusBadge = requireElement<HTMLElement>('#multiplayer-status-badge')
 const multiplayerStatus = requireElement<HTMLElement>('#multiplayer-status')
 const multiplayerName = requireElement<HTMLInputElement>('#multiplayer-name')
 const multiplayerCode = requireElement<HTMLInputElement>('#multiplayer-code')
@@ -860,8 +967,8 @@ let game = new GameState()
 const festivalUI = mountFestivalUI(() => game, showToast)
 const stageEditor = mountStageEditor(() => game, showToast)
 const stageEditorButton = document.createElement('button')
-stageEditorButton.textContent = 'Bühnenwerkstatt'; stageEditorButton.addEventListener('click',()=>stageEditor.open())
-document.querySelector('.game-actions')!.append(stageEditorButton)
+stageEditorButton.textContent = '🎭 Bühnenwerkstatt'; stageEditorButton.addEventListener('click',()=>stageEditor.open())
+document.querySelector('#action-group-festival')!.append(stageEditorButton)
 const editStageButton = document.createElement('button')
 editStageButton.textContent='Bühne gestalten';editStageButton.hidden=true
 entityOverview.append(editStageButton)
@@ -886,6 +993,7 @@ const hourOptions = Array.from(
 dayEntryHour.innerHTML = hourOptions
 dayExitHour.innerHTML = hourOptions
 let securityItemsFingerprint = ''
+let bulldozeBrushSize = 1
 let pathEditorActive = false
 let pathAnchor: PathAnchor | null = null
 let pathDirection = 0
@@ -1007,7 +1115,7 @@ function bindGameState(nextGame: GameState): void {
     }[festivalPhase.phase]
     date.textContent = snapshot.festival.planning ? 'Planung · Festival noch nicht gestartet' :
       `${dayPhaseIcon} Tag ${snapshot.day} · ${festivalPhaseLabel} ${festivalPhase.phaseDay}/${festivalPhase.phaseLength} · ${formatTime(snapshot.minute)}`
-    toggleParkButton.textContent = snapshot.parkOpen ? 'Park schließen' : snapshot.festival.planning || snapshot.festival.finished ? 'Park geschlossen' : 'Park öffnen'
+    toggleParkButton.textContent = snapshot.parkOpen ? '🔓 Park schließen' : snapshot.festival.planning || snapshot.festival.finished ? '🔒 Gelände eröffnen' : '🔒 Park öffnen'
     toggleParkButton.disabled = Boolean(snapshot.festival.planning || snapshot.festival.finished)
     toggleParkButton.title = toggleParkButton.disabled ? 'Start über das Festivalmenü' : ''
     toggleParkButton.classList.toggle('park-closed', !snapshot.parkOpen)
@@ -1120,13 +1228,13 @@ function updateStaffPanel(): void {
     const members = game.snapshot.staff.filter((member) => member.role === role)
     const working = members.filter((member) => member.state !== 'patrolling').length
     return `<section>
-      <div><span>${definition.icon}</span><strong>${definition.name}</strong><b>${members.length}</b></div>
+      <div><span>${definition.icon}</span><strong>${definition.name}</strong><b>${members.length} · ${formatMoney(members.length * definition.hourlyWage)}/h</b></div>
       <small>${working} im Einsatz · ${formatMoney(definition.hourlyWage)}/h je Person</small>
       <div class="staff-actions">
         <button data-hire-staff="${role}">Einstellen · ${formatMoney(definition.hireCost)}</button>
         <button data-fire-staff="${role}" ${members.length === 0 ? 'disabled' : ''}>Entlassen</button>
       </div>
-      ${members.map(member => `<button data-inspect-staff="${member.id}">${escapeHtml(member.name)}</button>`).join('')}
+      ${members.length ? `<hr class="staff-divider"><div class="staff-members">${members.map(member => `<button data-inspect-staff="${member.id}">${escapeHtml(member.name)}</button>`).join('')}</div>` : ''}
     </section>`
   }).join('')
 }
@@ -1609,10 +1717,22 @@ function handleCellClick(cell: CellPosition): void {
     return
   }
 
+  if (tool === 'bulldoze') {
+    const result =
+      bulldozeBrushSize > 1
+        ? game.bulldozeArea(
+            createCampingArea(cell, {
+              x: cell.x + bulldozeBrushSize - 1,
+              z: cell.z + bulldozeBrushSize - 1,
+            }),
+          )
+        : game.bulldoze(cell.x, cell.z)
+    showToast(result.message, !result.ok)
+    return
+  }
+
   const result =
-    tool === 'bulldoze'
-      ? game.bulldoze(cell.x, cell.z)
-      : tool === 'camping'
+    tool === 'camping'
         ? game.designateCampingCell(cell.x, cell.z)
         : tool === 'medicalArea'
           ? game.designateMedicalArea([cell])
@@ -2440,7 +2560,7 @@ function selectVisitor(visitorId: string): void {
     view.followVisitor(visitorId)
   }
   selectedEntity = null
-  entityPanel.classList.remove('visible')
+  entityPanel.hidden = true
   visitorPanel.classList.add('visible')
   updateVisitorPanel()
 }
@@ -2587,7 +2707,7 @@ function openEntityInfoForBuilding(buildingId: string): void {
   followedVisitorId = null
   view.followVisitor(null)
   visitorPanel.classList.remove('visible')
-  entityPanel.classList.add('visible')
+  entityPanel.hidden = false
   updateEntityPanel()
 }
 
@@ -2598,7 +2718,7 @@ function openEntityInfoForCoaster(coasterId: string): void {
   followedVisitorId = null
   view.followVisitor(null)
   visitorPanel.classList.remove('visible')
-  entityPanel.classList.add('visible')
+  entityPanel.hidden = false
   updateEntityPanel()
 }
 
@@ -2930,7 +3050,7 @@ function drawTelemetryChart(coaster: Coaster): void {
 
 function closeEntityPanel(): void {
   selectedEntity = null
-  entityPanel.classList.remove('visible')
+  entityPanel.hidden = true
 }
 
 function showToast(message: string, isError = false): void {
@@ -3012,9 +3132,123 @@ const debugMenuToggle =
   requireElement<HTMLButtonElement>('#toggle-debug-menu')
 const debugMenuPanel =
   requireElement<HTMLDivElement>('#debug-menu-panel')
+const saveMenuToggle =
+  requireElement<HTMLButtonElement>('#toggle-save-menu')
+const saveMenuPanel =
+  requireElement<HTMLDivElement>('#save-menu-panel')
+// The button row wraps onto multiple lines depending on available width, so
+// the panel can't rely on a static CSS anchor (it would end up far from
+// whichever line the button currently sits on). Position it from the
+// button's live on-screen rect instead, clamped to stay fully in view.
+function positionDropdownPanel(button: HTMLElement, panel: HTMLElement, panelWidth = 250): void {
+  const margin = 8
+  const width = Math.min(panelWidth, window.innerWidth - margin * 2)
+  const rect = button.getBoundingClientRect()
+  const left = Math.min(
+    Math.max(rect.right - width, margin),
+    window.innerWidth - width - margin,
+  )
+  panel.style.left = `${left}px`
+  panel.style.top = `${rect.bottom + margin}px`
+}
+
+const closeSaveMenu = (): void => {
+  saveMenuPanel.classList.remove('open')
+  saveMenuToggle.setAttribute('aria-expanded', 'false')
+}
+const closeDebugMenu = (): void => {
+  debugMenuPanel.classList.remove('open')
+  debugMenuToggle.setAttribute('aria-expanded', 'false')
+}
 debugMenuToggle.addEventListener('click', () => {
+  closeSaveMenu()
   const open = debugMenuPanel.classList.toggle('open')
   debugMenuToggle.setAttribute('aria-expanded', String(open))
+  if (open) positionDropdownPanel(debugMenuToggle, debugMenuPanel)
+})
+saveMenuToggle.addEventListener('click', () => {
+  closeDebugMenu()
+  const open = saveMenuPanel.classList.toggle('open')
+  saveMenuToggle.setAttribute('aria-expanded', String(open))
+  if (open) positionDropdownPanel(saveMenuToggle, saveMenuPanel)
+})
+saveMenuPanel.addEventListener('click', (event) => {
+  if (!(event.target as HTMLElement).closest('button')) return
+  closeSaveMenu()
+})
+
+// Build menu and bulldoze menu are mutually exclusive; whenever neither is
+// open, the active tool falls back to "Info" (inspect).
+const infoButton = requireElement<HTMLButtonElement>('#open-info')
+const buildMenuToggle = requireElement<HTMLButtonElement>('#open-build-menu')
+const buildMenuPanel = requireElement<HTMLElement>('#build-menu')
+const bulldozeMenuToggle = requireElement<HTMLButtonElement>('#toggle-bulldoze-menu')
+const bulldozeMenuPanel = requireElement<HTMLDivElement>('#bulldoze-menu-panel')
+const bulldozeSizeButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>('[data-bulldoze-size]'),
+)
+makeDraggable(requireElement<HTMLElement>('.build-menu-header'), buildMenuPanel)
+makeResizable(buildMenuPanel)
+makeDraggable(requireElement<HTMLElement>('.bulldoze-panel-header'), bulldozeMenuPanel)
+makeResizable(bulldozeMenuPanel)
+
+const activateInfoIfNothingOpen = (): void => {
+  if (buildMenuPanel.hidden && !bulldozeMenuPanel.classList.contains('open')) {
+    game.setTool('inspect')
+  }
+}
+const closeBuildMenu = (): void => {
+  buildMenuPanel.hidden = true
+  buildMenuToggle.setAttribute('aria-expanded', 'false')
+}
+const closeBulldozeMenu = (): void => {
+  bulldozeMenuPanel.classList.remove('open')
+  bulldozeMenuToggle.setAttribute('aria-expanded', 'false')
+}
+infoButton.addEventListener('click', () => {
+  closeBuildMenu()
+  closeBulldozeMenu()
+  game.setTool('inspect')
+})
+buildMenuToggle.addEventListener('click', () => {
+  if (!buildMenuPanel.hidden) {
+    closeBuildMenu()
+    activateInfoIfNothingOpen()
+    return
+  }
+  closeBulldozeMenu()
+  buildMenuPanel.hidden = false
+  buildMenuToggle.setAttribute('aria-expanded', 'true')
+})
+requireElement<HTMLButtonElement>('[data-close-build-menu]').addEventListener('click', () => {
+  closeBuildMenu()
+  activateInfoIfNothingOpen()
+})
+bulldozeMenuToggle.addEventListener('click', () => {
+  if (bulldozeMenuPanel.classList.contains('open')) {
+    closeBulldozeMenu()
+    activateInfoIfNothingOpen()
+    return
+  }
+  closeBuildMenu()
+  bulldozeMenuPanel.classList.add('open')
+  bulldozeMenuToggle.setAttribute('aria-expanded', 'true')
+  game.setTool('bulldoze')
+})
+requireElement<HTMLButtonElement>('[data-close-bulldoze-menu]').addEventListener('click', () => {
+  closeBulldozeMenu()
+  activateInfoIfNothingOpen()
+})
+bulldozeSizeButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    bulldozeBrushSize = Number(button.dataset.bulldozeSize)
+    bulldozeSizeButtons.forEach((b) => b.classList.toggle('active', b === button))
+    game.setTool('bulldoze')
+  })
+})
+window.addEventListener('resize', () => {
+  if (debugMenuPanel.classList.contains('open')) positionDropdownPanel(debugMenuToggle, debugMenuPanel)
+  if (saveMenuPanel.classList.contains('open')) positionDropdownPanel(saveMenuToggle, saveMenuPanel)
 })
 requireElement<HTMLButtonElement>('#debug-remove-cars').addEventListener(
   'click',
@@ -3108,12 +3342,15 @@ function readMultiplayerName(): string {
 
 function renderMultiplayerStatus(status: MultiplayerStatus): void {
   const connected = status.connected
-  multiplayerStatus.textContent = status.message || 'Nicht verbunden'
+  multiplayerStatusBadge.dataset.state = connected ? 'online' : status.message ? 'disconnected' : 'solo'
+  multiplayerStatus.textContent = connected
+    ? `Online · ${status.mode === 'host' ? 'Host' : 'Verbunden'} · Raum ${status.code}`
+    : status.message || 'Singleplayer'
   multiplayerToggle.textContent = connected
     ? status.mode === 'host'
-      ? `Host ${status.code}`
-      : `Online ${status.code}`
-    : 'Mehrspieler'
+      ? `🌐 Host ${status.code}`
+      : `🌐 Online ${status.code}`
+    : '🌐 Mehrspieler'
   multiplayerConnectActions.hidden = connected
   multiplayerCodeField.hidden = connected
   multiplayerJoinActions.hidden = connected
@@ -3144,6 +3381,11 @@ if (joinFromUrl) {
 multiplayerToggle.addEventListener('click', () => {
   setMultiplayerPanelOpen(multiplayerPanel.hasAttribute('hidden'))
 })
+requireElement<HTMLButtonElement>('#close-multiplayer').addEventListener('click', () => {
+  setMultiplayerPanelOpen(false)
+})
+makeDraggable(multiplayerPanel.querySelector<HTMLElement>('.panel-header')!, multiplayerPanel)
+makeResizable(multiplayerPanel)
 multiplayerHostButton.addEventListener('click', () => {
   multiplayer.host(readMultiplayerName())
   showToast('Verbinde als Host…')
@@ -3185,6 +3427,11 @@ multiplayerCopyButton.addEventListener('click', async () => {
 scenarioToggle.addEventListener('click', () => {
   setScenarioPanelOpen(scenarioPanel.hasAttribute('hidden'))
 })
+requireElement<HTMLButtonElement>('#close-scenario').addEventListener('click', () => {
+  setScenarioPanelOpen(false)
+})
+makeDraggable(scenarioPanel.querySelector<HTMLElement>('.panel-header')!, scenarioPanel)
+makeResizable(scenarioPanel)
 requireElement<HTMLButtonElement>('#start-scenario').addEventListener(
   'click',
   () => {
@@ -3537,14 +3784,23 @@ document.querySelector<HTMLButtonElement>('#save')?.addEventListener('click', ()
   showToast(game.save().message)
 })
 
-const saveSlotsDialog = document.createElement('dialog')
-saveSlotsDialog.className = 'save-slots-dialog'
-saveSlotsDialog.innerHTML = `<header><div><h2>Lokale Spielstände</h2><p data-save-storage>Spielstände werden geladen …</p></div><button data-close aria-label="Spielstände schließen">×</button></header><form data-save-slot><label>Name<input name="name" maxlength="40" placeholder="z. B. Samstagabend" required></label><button>Neuen Spielstand speichern</button></form><p class="save-slots-message" role="status"></p><div class="save-slots-list"></div>`
-document.body.append(saveSlotsDialog)
-const saveSlotsList = saveSlotsDialog.querySelector<HTMLElement>('.save-slots-list')!
-const saveSlotsMessage = saveSlotsDialog.querySelector<HTMLElement>('.save-slots-message')!
-const saveStorageInfo = saveSlotsDialog.querySelector<HTMLElement>('[data-save-storage]')!
-const saveSlotName = saveSlotsDialog.querySelector<HTMLInputElement>('[name=name]')!
+const saveSlotsPanel = requireElement<HTMLElement>('#save-slots-panel')
+const saveSlotsList = saveSlotsPanel.querySelector<HTMLElement>('.save-slots-list')!
+const saveSlotsMessage = saveSlotsPanel.querySelector<HTMLElement>('.save-slots-message')!
+const saveStorageInfo = saveSlotsPanel.querySelector<HTMLElement>('[data-save-storage]')!
+const saveSlotName = saveSlotsPanel.querySelector<HTMLInputElement>('[name=name]')!
+makeDraggable(saveSlotsPanel.querySelector<HTMLElement>('.panel-header')!, saveSlotsPanel)
+makeResizable(saveSlotsPanel)
+let saveSlotsPausedSpeed = 0
+function setSaveSlotsPanelOpen(open: boolean): void {
+  saveSlotsPanel.hidden = !open
+  if (open) {
+    saveSlotsPausedSpeed = game.snapshot.speed
+    if (saveSlotsPausedSpeed !== 0) game.setSpeed(0)
+  } else if (saveSlotsPausedSpeed !== 0) {
+    game.setSpeed(saveSlotsPausedSpeed)
+  }
+}
 const formatSaveTime = (value: number) => new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' }).format(value)
 let serverSaveSlots: ServerSaveSlot[] | null = null
 function bindLoadedGame(loaded: GameState, message: string): void {
@@ -3558,27 +3814,32 @@ function showSaveSlots(slots: ServerSaveSlot[], onServer: boolean): void {
     ? slots.map(slot => `<article data-slot="${slot.id}"><div><strong>${escapeHtml(slot.name)}</strong><small>${formatSaveTime(slot.savedAt)}</small></div><div><button data-load-slot="${slot.id}">Laden</button><button data-overwrite-slot="${slot.id}">Überschreiben</button><button data-delete-slot="${slot.id}" aria-label="${escapeHtml(slot.name)} löschen">×</button></div></article>`).join('')
     : `<p class="save-slots-empty">Noch keine benannten Spielstände ${onServer ? 'auf dem lokalen Server' : 'im Browser'}. Der Button „Speichern“ bleibt der schnelle Einzelspielstand.</p>`
 }
-async function renderSaveSlots(): Promise<void> {
+async function fetchSaveSlots(): Promise<{ slots: ServerSaveSlot[], onServer: boolean }> {
   try {
     serverSaveSlots = await listServerSaves()
-    saveStorageInfo.textContent = 'Bis zu 20 Spielstände liegen lokal im Ordner „saves“ des Spielservers.'
-    showSaveSlots(serverSaveSlots, true)
+    return { slots: serverSaveSlots, onServer: true }
   } catch {
     serverSaveSlots = null
-    saveStorageInfo.textContent = 'Der Spielserver ist nicht erreichbar. Bis zu 20 Spielstände werden stattdessen in diesem Browser gespeichert.'
-    showSaveSlots(GameState.listSaveSlots(), false)
+    return { slots: GameState.listSaveSlots(), onServer: false }
   }
+}
+async function renderSaveSlots(): Promise<void> {
+  const { slots, onServer } = await fetchSaveSlots()
+  saveStorageInfo.textContent = onServer
+    ? 'Bis zu 20 Spielstände liegen lokal im Ordner „saves“ des Spielservers.'
+    : 'Der Spielserver ist nicht erreichbar. Bis zu 20 Spielstände werden stattdessen in diesem Browser gespeichert.'
+  showSaveSlots(slots, onServer)
 }
 async function openSaveSlots(): Promise<void> {
   if (multiplayer.status.mode === 'client') { showToast('Nur der Host kann Spielstände verwalten', true); return }
   saveSlotsMessage.textContent = ''
   saveSlotName.value = ''
-  saveSlotsDialog.showModal()
+  setSaveSlotsPanelOpen(true)
   await renderSaveSlots()
   saveSlotName.focus()
 }
-saveSlotsDialog.querySelector('[data-close]')!.addEventListener('click', () => saveSlotsDialog.close())
-saveSlotsDialog.querySelector<HTMLFormElement>('[data-save-slot]')!.addEventListener('submit', async event => {
+saveSlotsPanel.querySelector('[data-close]')!.addEventListener('click', () => setSaveSlotsPanelOpen(false))
+saveSlotsPanel.querySelector<HTMLFormElement>('[data-save-slot]')!.addEventListener('submit', async event => {
   event.preventDefault()
   try {
     if (serverSaveSlots) {
@@ -3593,7 +3854,7 @@ saveSlotsDialog.querySelector<HTMLFormElement>('[data-save-slot]')!.addEventList
     await renderSaveSlots()
   } catch (error) { saveSlotsMessage.textContent = error instanceof Error ? error.message : 'Spielstand konnte nicht gespeichert werden' }
 })
-saveSlotsDialog.addEventListener('click', async event => {
+saveSlotsPanel.addEventListener('click', async event => {
   const button = (event.target as Element).closest<HTMLButtonElement>('[data-load-slot],[data-overwrite-slot],[data-delete-slot]')
   if (!button) return
   const id = button.dataset.loadSlot ?? button.dataset.overwriteSlot ?? button.dataset.deleteSlot!
@@ -3602,7 +3863,7 @@ saveSlotsDialog.addEventListener('click', async event => {
     try { loaded = serverSaveSlots ? GameState.fromJSON((await loadServerSave(id)).snapshot) : GameState.loadSlot(id) } catch { loaded = null }
     if (!loaded) { saveSlotsMessage.textContent = 'Dieser Spielstand ist ungültig oder nicht mehr vorhanden.'; renderSaveSlots(); return }
     bindLoadedGame(loaded, 'Lokaler Spielstand geladen')
-    saveSlotsDialog.close()
+    setSaveSlotsPanelOpen(false)
     return
   }
   if (button.dataset.overwriteSlot) {
@@ -3627,6 +3888,70 @@ saveSlotsDialog.addEventListener('click', async event => {
   } catch (error) { saveSlotsMessage.textContent = error instanceof Error ? error.message : 'Spielstand konnte nicht gelöscht werden' }
 })
 document.querySelector<HTMLButtonElement>('#save-slots')?.addEventListener('click', openSaveSlots)
+
+const saveAsPanel = requireElement<HTMLElement>('#save-as-panel')
+const saveAsList = saveAsPanel.querySelector<HTMLElement>('[data-save-as-list]')!
+const saveAsMessage = saveAsPanel.querySelector<HTMLElement>('[data-save-as-message]')!
+const saveAsStorageInfo = saveAsPanel.querySelector<HTMLElement>('[data-save-as-storage]')!
+const saveAsName = saveAsPanel.querySelector<HTMLInputElement>('[name=name]')!
+let saveAsPausedSpeed = 0
+function setSaveAsPanelOpen(open: boolean): void {
+  saveAsPanel.hidden = !open
+  if (open) {
+    saveAsPausedSpeed = game.snapshot.speed
+    if (saveAsPausedSpeed !== 0) game.setSpeed(0)
+  } else if (saveAsPausedSpeed !== 0) {
+    game.setSpeed(saveAsPausedSpeed)
+  }
+}
+async function renderSaveAsSlots(): Promise<void> {
+  const { slots, onServer } = await fetchSaveSlots()
+  saveAsStorageInfo.textContent = onServer
+    ? 'Bis zu 20 Spielstände liegen lokal im Ordner „saves“ des Spielservers.'
+    : 'Der Spielserver ist nicht erreichbar. Bis zu 20 Spielstände werden stattdessen in diesem Browser gespeichert.'
+  saveAsList.innerHTML = slots.length
+    ? slots.map(slot => `<article data-slot="${slot.id}"><div><strong>${escapeHtml(slot.name)}</strong><small>${formatSaveTime(slot.savedAt)}</small></div><div><button data-overwrite-slot="${slot.id}">Überschreiben</button></div></article>`).join('')
+    : `<p class="save-slots-empty">Noch keine benannten Spielstände ${onServer ? 'auf dem lokalen Server' : 'im Browser'}.</p>`
+}
+async function openSaveAs(): Promise<void> {
+  if (multiplayer.status.mode === 'client') { showToast('Nur der Host kann Spielstände verwalten', true); return }
+  saveAsMessage.textContent = ''
+  saveAsName.value = ''
+  setSaveAsPanelOpen(true)
+  await renderSaveAsSlots()
+  saveAsName.focus()
+}
+requireElement<HTMLButtonElement>('#close-save-as').addEventListener('click', () => setSaveAsPanelOpen(false))
+makeDraggable(saveAsPanel.querySelector<HTMLElement>('.panel-header')!, saveAsPanel)
+makeResizable(saveAsPanel)
+saveAsPanel.querySelector<HTMLFormElement>('[data-save-as]')!.addEventListener('submit', async event => {
+  event.preventDefault()
+  try {
+    if (serverSaveSlots) {
+      const saved = await saveServerSave(saveAsName.value, JSON.stringify(game.snapshot))
+      saveAsMessage.textContent = `Spielstand „${saved.name}“ auf dem lokalen Server gespeichert`
+    } else {
+      const result = game.saveSlot(saveAsName.value)
+      saveAsMessage.textContent = result.message
+      if (!result.ok) return
+    }
+    saveAsName.value = ''
+    await renderSaveAsSlots()
+  } catch (error) { saveAsMessage.textContent = error instanceof Error ? error.message : 'Spielstand konnte nicht gespeichert werden' }
+})
+saveAsPanel.addEventListener('click', async event => {
+  const button = (event.target as Element).closest<HTMLButtonElement>('[data-overwrite-slot]'); if (!button) return
+  const id = button.dataset.overwriteSlot!
+  const slot = (serverSaveSlots ?? GameState.listSaveSlots()).find(item => item.id === id)
+  if (!slot) { renderSaveAsSlots(); return }
+  try {
+    if (serverSaveSlots) await saveServerSave(slot.name, JSON.stringify(game.snapshot), id)
+    else { const result = game.saveSlot(slot.name, id); if (!result.ok) throw new Error(result.message) }
+    saveAsMessage.textContent = `Spielstand „${slot.name}“ überschrieben`
+    await renderSaveAsSlots()
+  } catch (error) { saveAsMessage.textContent = error instanceof Error ? error.message : 'Spielstand konnte nicht überschrieben werden' }
+})
+document.querySelector<HTMLButtonElement>('#save-as')?.addEventListener('click', openSaveAs)
 
 const saveTextDialog = document.createElement('dialog')
 saveTextDialog.className = 'save-text-dialog'
@@ -3711,6 +4036,8 @@ followVisitorButton.addEventListener('click', () => {
 document.querySelector<HTMLButtonElement>('#close-entity')?.addEventListener('click', () => {
   closeEntityPanel()
 })
+makeDraggable(entityPanel.querySelector<HTMLElement>('.panel-header')!, entityPanel)
+makeResizable(entityPanel)
 
 document.querySelectorAll<HTMLButtonElement>('[data-entity-tab]').forEach((button) => {
   button.addEventListener('click', () => {

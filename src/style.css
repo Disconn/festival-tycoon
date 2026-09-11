@@ -100,18 +100,7 @@ button {
 
 .scenario-toggle {
   margin-left: 4px;
-  color: #ecf5f0;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 7px;
-  padding: 6px 9px;
-  cursor: pointer;
   white-space: nowrap;
-}
-
-.scenario-toggle:hover,
-.scenario-toggle[aria-expanded='true'] {
-  background: #3f715b;
 }
 
 .scenario-panel {
@@ -127,7 +116,8 @@ button {
 }
 
 .scenario-panel[hidden],
-.multiplayer-panel[hidden] {
+.multiplayer-panel[hidden],
+.save-as-panel[hidden] {
   display: none;
 }
 
@@ -143,13 +133,57 @@ button {
   gap: 10px;
 }
 
-.multiplayer-panel h2 {
-  margin: 0;
-  color: #a9beb5;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+.save-as-panel {
+  position: absolute;
+  top: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 28;
+  width: 360px;
+  max-height: calc(100dvh - 116px);
+  overflow-y: auto;
+  padding: 12px;
+  border-radius: 13px;
+  display: grid;
+  gap: 10px;
 }
+
+.save-as-panel input[type='text'],
+.save-slots-panel input[type='text'] {
+  width: 100%;
+  padding: 7px 8px;
+  color: #edf7f1;
+  background: #29463a;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font: inherit;
+  font-size: 12px;
+}
+
+.save-as-form {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+}
+
+.save-as-form label {
+  flex: 1;
+}
+
+.save-slots-panel {
+  position: absolute;
+  top: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 28;
+  width: min(560px, calc(100vw - 40px));
+  max-height: calc(100dvh - 116px);
+  overflow-y: auto;
+  padding: 12px;
+  border-radius: 13px;
+  display: grid;
+  gap: 10px;
+}
+.save-slots-panel[hidden] { display: none; }
 
 .multiplayer-panel input[type='text'] {
   width: 100%;
@@ -190,10 +224,44 @@ button {
   background: #4b856b;
 }
 
-#multiplayer-status {
-  margin: 0;
+.multiplayer-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
   color: #d7efe4;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   font-size: 12px;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #8a9992;
+}
+
+.multiplayer-status-badge[data-state='online'] {
+  color: #baf0cf;
+  border-color: rgba(94, 176, 129, 0.45);
+  background: rgba(94, 176, 129, 0.12);
+}
+
+.multiplayer-status-badge[data-state='online'] .status-dot {
+  background: #5eb081;
+  box-shadow: 0 0 6px rgba(94, 176, 129, 0.8);
+}
+
+.multiplayer-status-badge[data-state='disconnected'] {
+  color: #ffd2c0;
+  border-color: rgba(210, 114, 74, 0.45);
+  background: rgba(210, 114, 74, 0.12);
+}
+
+.multiplayer-status-badge[data-state='disconnected'] .status-dot {
+  background: #d2724a;
 }
 
 .multiplayer-room {
@@ -228,14 +296,6 @@ button {
   background: rgba(176, 61, 51, 0.38);
 }
 
-.scenario-panel h2 {
-  margin: 0;
-  color: #a9beb5;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-}
-
 .scenario-hint {
   margin: 0;
   color: #9eb6ac;
@@ -266,8 +326,7 @@ button {
   accent-color: #5eb081;
 }
 
-.scenario-field select,
-#start-scenario {
+.scenario-field select {
   width: 100%;
   padding: 7px 8px;
   color: #edf7f1;
@@ -279,12 +338,7 @@ button {
 }
 
 #start-scenario {
-  cursor: pointer;
-  background: #3f715b;
-}
-
-#start-scenario:hover {
-  background: #4b856b;
+  width: 100%;
 }
 
 .stats {
@@ -309,36 +363,178 @@ button {
 
 .game-actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.action-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
 }
 
-.debug-menu {
-  position: relative;
+.action-divider {
+  align-self: stretch;
+  width: 1px;
+  margin-block: 4px;
+  background: rgba(255, 255, 255, 0.14);
 }
 
-.debug-menu-panel {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
+/* top/left are set in JS from the toggle button's actual on-screen rect,
+   clamped to the viewport, because the button can end up on any wrapped row
+   of .game-actions depending on available width. position: fixed keeps the
+   math viewport-relative. */
+.debug-menu-panel,
+.dropdown-menu-panel {
+  position: fixed;
   z-index: 30;
   display: none;
   width: 250px;
+  max-width: calc(100vw - 16px);
   padding: 8px;
 }
 
-.debug-menu-panel.open {
+.debug-menu-panel.open,
+.dropdown-menu-panel.open {
   display: grid;
   gap: 6px;
 }
 
-.debug-menu-panel button {
+.debug-menu-panel button,
+.dropdown-menu-panel button {
   width: 100%;
   text-align: left;
   white-space: normal;
 }
 
+/* Abriss (bulldoze) brush-size panel. Spawns at the same fixed spot as
+   .build-menu (they're mutually exclusive, so sharing a spawn point is
+   fine) instead of being anchored to its toggle button - consistent with
+   every other standardized overlay, and still draggable from there. */
+.bulldoze-panel {
+  position: fixed;
+  top: var(--topbar-gap-top, 100px);
+  left: 12px;
+  z-index: 30;
+  display: none;
+  width: 220px;
+  max-width: calc(100vw - 16px);
+  padding: 10px;
+}
+
+.bulldoze-panel.open {
+  display: block;
+}
+
+/* Shared "draggable overlay header" building blocks: a grab-able bar
+   (.panel-header) holding two dividing lines (.panel-drag-line) around a
+   centered title (.panel-header-title) and a fixed close button
+   (.panel-close-button) at the end. Used by every overlay panel that can be
+   dragged and closed (currently: Bauen, Abriss) - add both this class and
+   the panel's own unique class (needed to target it from JS) to reuse it. */
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -2px -2px 8px;
+  padding: 4px;
+  border-radius: 8px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.panel-header:active {
+  cursor: grabbing;
+}
+
+.panel-header-title {
+  flex-shrink: 0;
+  margin: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.panel-close-button {
+  flex-shrink: 0;
+  color: #ecf5f0;
+  background: rgba(255, 255, 255, 0.08);
+  /* Width/style only - .panel button (defined once, app-wide) supplies the
+     per-side bevel colors every panel button gets; a uniform border-color
+     here would out-specificity and flatten that. */
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 2px;
+  padding: 5px 9px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.panel-close-button:hover {
+  background: #3f715b;
+}
+
+/* Bottom-right resize grip, created and attached by makeResizable() in
+   dragPanel.ts - shared by every resizable overlay panel. Drawn as three
+   short diagonal lines (the conventional resize-corner glyph) via a
+   repeating gradient instead of an image/icon font. */
+.panel-resize-grip {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(
+    135deg,
+    transparent 0 3px,
+    rgba(255, 255, 255, 0.45) 3px 4px,
+    transparent 4px 6px,
+    rgba(255, 255, 255, 0.45) 6px 7px,
+    transparent 7px 9px,
+    rgba(255, 255, 255, 0.45) 9px 10px,
+    transparent 10px 100%
+  );
+}
+
+.panel-drag-line {
+  flex: 1;
+  height: 2px;
+  min-width: 8px;
+  background: #233c36;
+  border-radius: 1px;
+}
+
+.bulldoze-size-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.bulldoze-size-grid button.active {
+  background: #3f715b;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.game-actions button[aria-expanded='true'] {
+  background: #3f715b;
+}
+
 .game-actions button,
-.time-controls button {
+.time-controls button,
+.scenario-toggle,
+.festival-management button,
+.supply-planner button,
+.save-as-panel button,
+.entity-panel button,
+.staff-panel button,
+.staff-details button,
+.scenario-panel button,
+.save-slots-panel button {
   color: #ecf5f0;
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -349,7 +545,17 @@ button {
 
 .game-actions button:hover,
 .time-controls button:hover,
-.time-controls button.active {
+.time-controls button.active,
+.scenario-toggle:hover,
+.scenario-toggle[aria-expanded='true'],
+.festival-management button:hover,
+.supply-planner button:hover,
+.save-as-panel button:hover,
+.entity-panel button:hover,
+.staff-panel button:hover,
+.staff-details button:hover,
+.scenario-panel button:hover,
+.save-slots-panel button:hover {
   background: #3f715b;
 }
 
@@ -368,14 +574,6 @@ button {
   border-radius: 13px;
   overflow: visible;
   z-index: 20;
-}
-
-.build-menu h2 {
-  margin: 0 0 9px 4px;
-  color: #a9beb5;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
 }
 
 .build-categories {
@@ -1644,6 +1842,22 @@ button {
   flex: 1;
 }
 
+.staff-divider {
+  margin: 8px 0;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.staff-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.staff-members button {
+  flex: 0 1 calc(50% - 4px);
+}
+
 .security-items {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1807,9 +2021,18 @@ button {
 }
 
 .entity-panel {
+  position: absolute;
+  top: 100px;
+  right: 6px;
+  z-index: 22;
   width: 360px;
-  max-height: calc(100vh - 116px);
+  padding: 14px;
+  max-height: calc(100dvh - 158px);
   overflow-y: auto;
+}
+
+.entity-panel[hidden] {
+  display: none;
 }
 
 .entity-tabs {
@@ -2110,8 +2333,10 @@ button {
 .brand small { font-size: 9px; }
 .stats { gap: 16px; justify-content: flex-end; min-width: 0; }
 .stats strong { font-variant-numeric: tabular-nums; }
-.game-actions { display: flex; flex: 1 0 100%; gap: 4px; flex-wrap: wrap; }
-.game-actions button { padding: 5px 9px; font-size: 11px; }
+.game-actions { display: flex; flex: 1 0 100%; gap: 6px; flex-wrap: wrap; }
+.action-group { gap: 4px; }
+.action-divider { display: none; }
+.game-actions button, .festival-management button, .supply-planner button, .save-as-panel button, .entity-panel button, .staff-panel button, .staff-details button, .scenario-panel button, .save-slots-panel button { padding: 5px 9px; font-size: 11px; }
 .panel button {
   border-top-color: #819b8c; border-left-color: #819b8c;
   border-right-color: #1b322c; border-bottom-color: #1b322c;
@@ -2124,7 +2349,6 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   outline: 2px solid #ffd47d; outline-offset: 2px;
 }
 .build-menu { top: 100px; left: 6px; width: 190px; padding: 8px; }
-.build-menu h2 { font-size: 10px; letter-spacing: 0.12em; color: #efcf86; }
 .build-categories { max-height: max(60px, calc(100dvh - 550px)); overflow-y: auto; gap: 2px; scrollbar-color: #91aaa0 #253e35; scrollbar-width: thin; }
 .build-categories button { min-height: 30px; padding: 4px 6px; grid-template-columns: 24px 1fr 10px; font-size: 11px; }
 .build-categories span { font-size: 16px; }
@@ -2137,27 +2361,54 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 /* Reserve the right side for inspection; overlays move beside it on wide screens. */
 .visitor-panel { top: 100px; right: 6px; max-height: calc(100dvh - 158px); overflow-y: auto; z-index: 22; }
 .staff-panel { top: 100px; right: 6px; max-height: calc(100dvh - 158px); }
-.game-shell:has(.visitor-panel.visible, .staff-panel.visible) .crowding-panel { right: 388px; }
+.game-shell:has(.visitor-panel.visible, .staff-panel.visible, #entity-panel:not([hidden])) .crowding-panel { right: 388px; }
 .game-shell:has(.day-plan-panel.visible, .visitor-overview-panel.visible, .complaints-panel.visible) .crowding-panel { display: none; }
 .day-plan-panel, .visitor-overview-panel, .complaints-panel { top: 100px; max-height: calc(100dvh - 116px); overflow-y: auto; }
 @media (max-width: 1100px) {
-  .game-shell:has(.visitor-panel.visible, .staff-panel.visible) .crowding-panel { display: none; }
+  .game-shell:has(.visitor-panel.visible, .staff-panel.visible, #entity-panel:not([hidden])) .crowding-panel { display: none; }
 }
 @media (max-width: 780px) {
   .topbar { gap: 5px; }
   .brand { min-width: 130px; }
   .stats { gap: 7px; font-size: 10px; flex-wrap: wrap; }
-  .game-actions button { padding: 4px 6px; font-size: 10px; }
+  .game-actions button, .festival-management button, .supply-planner button, .save-as-panel button, .entity-panel button, .staff-panel button, .staff-details button, .scenario-panel button, .save-slots-panel button { padding: 4px 6px; font-size: 10px; }
   .build-menu { top: 125px; width: 164px; }
   .build-categories { max-height: max(60px, calc(100dvh - 575px)); }
   .crowding-panel { top: 125px; width: 144px; }
   .build-flyout { width: min(210px, calc(100vw - 186px)); }
-  .visitor-panel, .staff-panel, .day-plan-panel, .visitor-overview-panel, .complaints-panel { top: 125px; max-height: calc(100dvh - 181px); }
+  .visitor-panel, .staff-panel, .day-plan-panel, .visitor-overview-panel, .complaints-panel, .entity-panel { top: 125px; max-height: calc(100dvh - 181px); }
 }
 
 /* Keep the expanded scenario form inside the viewport. */
-.scenario-panel { top: 100px; max-height: calc(100dvh - 116px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
-@media (max-width: 780px) { .scenario-panel { top: 125px; max-height: calc(100dvh - 141px); } }
+.scenario-panel { max-height: calc(100dvh - 116px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+@media (max-width: 780px) { .scenario-panel { max-height: calc(100dvh - 141px); } }
+
+/* .topbar wraps onto extra rows (and so grows taller than any of the fixed
+   "top" offsets above assume) whenever its buttons don't fit on one line.
+   main.ts measures the topbar's real height with a ResizeObserver and
+   writes it here as --topbar-gap-top; every overlay that spawns near the
+   top reads it here, so this rule must stay the LAST thing in the file
+   (or at least the last thing) that sets `top` for these selectors - it
+   needs to win over every fixed value above, including the narrow-viewport
+   overrides, regardless of how many rows the topbar currently wraps to. */
+.build-menu,
+.crowding-panel,
+.scenario-panel,
+.multiplayer-panel,
+.save-as-panel,
+.save-slots-panel,
+.path-construction,
+.coaster-builder,
+.visitor-panel,
+.staff-panel,
+.staff-details,
+.day-plan-panel,
+.complaints-panel,
+.visitor-overview-panel,
+.entity-panel,
+#toast {
+  top: var(--topbar-gap-top, 100px);
+}
 
 .performance-indicator {
   white-space: pre;
@@ -2175,7 +2426,6 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   pointer-events: none;
 }
 
-.save-text-icon { padding-inline: 6px; min-width: 26px; }
 .save-text-dialog { width: min(600px, 85vw); color: #dedcc6; background: #263c2e; border: 2px solid #a89b61; border-radius: 5px; }
 .save-text-dialog::backdrop { background: #0009; }
 .save-text-dialog textarea { box-sizing: border-box; width: 100%; height: 180px; resize: vertical; font: 11px monospace; }
@@ -2183,37 +2433,24 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .save-text-dialog p { font-size: 12px; }
 .save-text-error { color: #ffc0aa; }
 
-.save-slots-dialog { width: min(680px, 90vw); color: #dedcc6; background: #263c2e; border: 2px solid #a89b61; border-radius: 5px; }
-.save-slots-dialog::backdrop { background: #0009; }
-.save-slots-dialog header { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
-.save-slots-dialog h2 { margin: 0; font-size: 18px; }
-.save-slots-dialog header p, .save-slots-message, .save-slots-empty { font-size: 12px; color: #c5d3c5; }
-.save-slots-dialog header > button { font-size: 20px; line-height: 1; }
-.save-slots-dialog form { display: flex; gap: 8px; align-items: end; padding: 12px; background: #1d352a; border: 1px solid #5f7866; }
-.save-slots-dialog form label { display: grid; gap: 5px; flex: 1; font-size: 12px; }
-.save-slots-dialog input { padding: 8px; color: #f2eed4; background: #14291f; border: 1px solid #829b7b; font: inherit; }
-.save-slots-dialog button { color: #f2eed4; background: linear-gradient(#4a6d60, #35564b); border: 1px solid #829b7b; padding: 7px 9px; cursor: pointer; font: inherit; }
+.save-slots-message, .save-slots-empty { font-size: 12px; color: #c5d3c5; }
 .save-slots-list { display: grid; gap: 7px; max-height: min(48vh, 420px); overflow: auto; }
 .save-slots-list article { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px; background: #203a31; border: 1px solid #577364; }
 .save-slots-list strong, .save-slots-list small { display: block; }
 .save-slots-list small { margin-top: 4px; color: #b7c9bb; font-variant-numeric: tabular-nums; }
 .save-slots-list article > div:last-child { display: flex; gap: 5px; flex-wrap: wrap; justify-content: end; }
-@media (max-width: 520px) { .save-slots-dialog form, .save-slots-list article { align-items: stretch; flex-direction: column; } .save-slots-list article > div:last-child { justify-content: stretch; } }
+@media (max-width: 520px) { .save-as-form, .save-slots-list article { align-items: stretch; flex-direction: column; } .save-slots-list article > div:last-child { justify-content: stretch; } }
 
-.staff-details { position: fixed; right: 6px; top: 100px; width: 265px; max-height: calc(100vh - 175px); overflow: auto; z-index: 45; padding: 10px; }
+.staff-details { position: fixed; right: 6px; width: 265px; max-height: calc(100vh - 175px); overflow: auto; z-index: 45; padding: 10px; }
 .staff-details[hidden] { display: none; }
-.staff-details header { display:flex; justify-content:space-between; align-items:center; }
+.staff-minimap-row { display: flex; gap: 6px; margin: 8px 0; }
+.staff-minimap { flex: 1; height: 120px; overflow: hidden; background: #0f1f19; border: 1px solid rgba(255, 255, 255, 0.12); }
+.staff-minimap canvas { display: block; width: 100%; height: 100%; }
+.staff-minimap-controls { display: flex; flex-direction: column; gap: 4px; }
+.staff-minimap-controls button { flex: 1; width: 30px; margin: 0; padding: 0; font-size: 15px; line-height: 1; }
 .staff-details p { font-size: 12px; }
 .staff-details button { margin:3px; }
 
-.staff-details button, .staff-panel [data-inspect-staff] {
-  font: inherit; font-size: 12px; color: #f2eed4; background: linear-gradient(#4a6d60, #35564b);
-  border: 1px solid #829b7b; box-shadow: inset 1px 1px #ffffff20, inset -1px -1px #13281f;
-  padding: 7px 9px; cursor: pointer;
-}
 .staff-details > button { display: block; width: 100%; margin: 6px 0 0; }
-.staff-details header strong { color: #e4d395; }
-.staff-details header button { padding: 2px 7px; }
-.staff-details button:hover { background: #547d69; }
 body:has(.staff-details:not([hidden])) .supply-planner,
 body:has(.staff-details:not([hidden])) .crowding-panel { visibility: hidden; }

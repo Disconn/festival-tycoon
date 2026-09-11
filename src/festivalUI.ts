@@ -1,5 +1,6 @@
 import { mountMusicPlanner, musicOverview } from './musicPlanner'
 import type { GameState, GameSnapshot } from './game/GameState'
+import { makeDraggable, makeResizable } from './dragPanel'
 import './festival.css'
 import { AUDIENCES, AUDIENCE_NAMES, SUPPLIES, UPGRADES, WEATHER_NAMES, audienceMix, forecast, festivalTime } from './game/festivalManagement'
 import type { FestivalAction, Supply, Upgrade } from './game/festivalManagement'
@@ -11,13 +12,13 @@ const meter = (label: string, n: number) => `<label class="festival-meter">${lab
 export function mountFestivalUI(getGame: () => GameState, toast: (text: string, error?: boolean) => void) {
   const shell = document.querySelector<HTMLElement>('.game-shell')!
   const open = document.createElement('button')
-  open.id = 'open-festival'; open.textContent = 'Festival planen'; open.setAttribute('aria-expanded', 'false')
-  document.querySelector('.game-actions')!.prepend(open)
+  open.id = 'open-festival'; open.textContent = '🎪 Festival planen'; open.setAttribute('aria-expanded', 'false')
+  document.querySelector('#action-group-festival')!.prepend(open)
   const weather = document.createElement('div'); weather.className = 'festival-weather'; weather.setAttribute('aria-hidden', 'true'); shell.append(weather)
   const panel = document.createElement('section')
   panel.id = 'festival-management'; panel.className = 'festival-management panel'; panel.hidden = true
   panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-labelledby', 'festival-title')
-  panel.innerHTML = `<div class="festival-chrome"><header class="festival-heading"><div><small>DEIN FESTIVAL · DEINE ENTSCHEIDUNGEN</small><h2 id="festival-title">Das Festivalwochenende</h2></div><button data-close aria-label="Festivalverwaltung schließen">×</button></header>
+  panel.innerHTML = `<div class="festival-chrome"><header class="festival-heading panel-header"><span class="panel-drag-line" aria-hidden="true"></span><h2 id="festival-title" class="panel-header-title">Das Festivalwochenende</h2><span class="panel-drag-line" aria-hidden="true"></span><button data-close class="panel-close-button" aria-label="Festivalverwaltung schließen">×</button></header>
     <div class="festival-status" aria-live="polite"></div>
     <nav class="festival-tabs" aria-label="Festivalbereiche">${[['overview', 'Übersicht'], ['lineup', 'Bands & Spielplan'], ['supply', 'Lager & Lieferungen'], ['prepare', 'Wetter & Vorsorge'], ['reports', 'Abrechnung & Ruf']].map(([id, label]) => `<button data-tab="${id}" aria-pressed="${id === 'overview'}">${label}</button>`).join('')}</nav></div>
     <section data-pane="overview"><div class="festival-intro"><h3>Ein Gelände. Ein Wochenende. Euer Publikum.</h3><p>Vorlauf und Festivaltage legt ihr in der Tagesplanung fest. Erst mit dem Start läuft die Festivalzeit. Bucht ein Programm, versorgt eure Gäste und entscheidet, welche Reserven ihr euch leisten könnt. Das vorhandene Gelände und Budget werden übernommen.</p><button data-action="start">Festival starten</button><button data-action="sandbox">Freies Spiel fortsetzen</button></div><form data-tickets class="festival-form"><label>Tagestickets je Festivaltag<input name="dayTickets" type="number" min="0" max="100000" value="150" required></label><label>Campingtickets für die gesamte Ausgabe<input name="campTickets" type="number" min="0" max="100000" value="0" required></label><button>Kontingente übernehmen</button></form><p data-camping-summary></p><div data-music-overview></div><div data-summary></div></section>
@@ -28,6 +29,8 @@ export function mountFestivalUI(getGame: () => GameState, toast: (text: string, 
     <section data-pane="prepare" hidden><div data-forecast class="festival-grid"></div><p>Die Sechs-Stunden-Vorhersage zeigt Wetterrisiken; einzelne Stunden können milder ausfallen. Regen weicht unbefestigte Flächen auf; befestigte Wege bleiben schnell. Ohne Sturmsicherung ruhen Auftritte bei starkem Wind. Schutzmaßnahmen gelten festivalweit und bleiben für weitere Ausgaben erhalten.</p><div data-upgrades class="festival-grid"></div></section>
     <section data-pane="reports" hidden><div data-reputation class="festival-grid"></div><p>Musikruf öffnet den Zugang zu größeren Bands. Atmosphäre, Komfort und Organisation beeinflussen die erwarteten Zielgruppen und die Nachfrage. Die Tagesbilanz enthält sämtliche Einnahmen und Ausgaben des Spiels.</p><div data-reports></div></section>`
   shell.append(panel)
+  makeDraggable(panel.querySelector<HTMLElement>('.panel-header')!, panel)
+  makeResizable(panel)
   let lastRender = -1, reportCount = 0
   const execute = (action: FestivalAction) => { const result = getGame().manageFestival(action); if (result.message !== 'Befehl eingeplant') toast(result.message, !result.ok); render(getGame().snapshot, true) }
   const musicPlanner=mountMusicPlanner(panel.querySelector('[data-music-planner]')!,()=>getGame().snapshot,execute,toast)
@@ -61,7 +64,7 @@ export function mountFestivalUI(getGame: () => GameState, toast: (text: string, 
     weather.dataset.weather = f.enabled && !f.finished ? f.weather : 'sun'
     if (f.reports.length > reportCount) { reportCount = f.reports.length; toast('Neue Festival-Tagesabrechnung verfügbar') }
     else reportCount = f.reports.length
-    open.textContent = f.enabled ? (f.finished ? 'Festival · Ergebnis' : `Festival · ${WEATHER_NAMES[f.weather]}`) : 'Festival planen'
+    open.textContent = f.enabled ? (f.finished ? '🎪 Festival · Ergebnis' : `🎪 Festival · ${WEATHER_NAMES[f.weather]}`) : '🎪 Festival planen'
     if (panel.hidden) return
     if (!force && performance.now() - lastRender < 500) return
     lastRender = performance.now()
