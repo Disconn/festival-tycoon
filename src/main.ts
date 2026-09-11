@@ -238,6 +238,18 @@ app.innerHTML = `
       <p class="save-slots-message" role="status" data-save-as-message></p>
       <div class="save-slots-list" data-save-as-list></div>
     </aside>
+    <aside id="save-slots-panel" class="save-slots-panel panel" hidden>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Lokale Spielstände</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button data-close class="panel-close-button" aria-label="Spielstände schließen">×</button>
+      </div>
+      <p class="scenario-hint" data-save-storage>Spielstände werden geladen …</p>
+      <form data-save-slot class="save-as-form"><label class="scenario-field"><span>Name</span><input name="name" type="text" maxlength="40" placeholder="z. B. Samstagabend" required></label><button>Neuen Spielstand speichern</button></form>
+      <p class="save-slots-message" role="status"></p>
+      <div class="save-slots-list"></div>
+    </aside>
     <aside id="build-menu" class="build-menu panel" aria-label="Bauwerkzeuge" hidden>
       <div class="build-menu-header panel-header">
         <span class="panel-drag-line" aria-hidden="true"></span>
@@ -1216,13 +1228,13 @@ function updateStaffPanel(): void {
     const members = game.snapshot.staff.filter((member) => member.role === role)
     const working = members.filter((member) => member.state !== 'patrolling').length
     return `<section>
-      <div><span>${definition.icon}</span><strong>${definition.name}</strong><b>${members.length}</b></div>
+      <div><span>${definition.icon}</span><strong>${definition.name}</strong><b>${members.length} · ${formatMoney(members.length * definition.hourlyWage)}/h</b></div>
       <small>${working} im Einsatz · ${formatMoney(definition.hourlyWage)}/h je Person</small>
       <div class="staff-actions">
         <button data-hire-staff="${role}">Einstellen · ${formatMoney(definition.hireCost)}</button>
         <button data-fire-staff="${role}" ${members.length === 0 ? 'disabled' : ''}>Entlassen</button>
       </div>
-      ${members.map(member => `<button data-inspect-staff="${member.id}">${escapeHtml(member.name)}</button>`).join('')}
+      ${members.length ? `<hr class="staff-divider"><div class="staff-members">${members.map(member => `<button data-inspect-staff="${member.id}">${escapeHtml(member.name)}</button>`).join('')}</div>` : ''}
     </section>`
   }).join('')
 }
@@ -3772,14 +3784,23 @@ document.querySelector<HTMLButtonElement>('#save')?.addEventListener('click', ()
   showToast(game.save().message)
 })
 
-const saveSlotsDialog = document.createElement('dialog')
-saveSlotsDialog.className = 'save-slots-dialog'
-saveSlotsDialog.innerHTML = `<header><div><h2>Lokale Spielstände</h2><p data-save-storage>Spielstände werden geladen …</p></div><button data-close aria-label="Spielstände schließen">×</button></header><form data-save-slot><label>Name<input name="name" maxlength="40" placeholder="z. B. Samstagabend" required></label><button>Neuen Spielstand speichern</button></form><p class="save-slots-message" role="status"></p><div class="save-slots-list"></div>`
-document.body.append(saveSlotsDialog)
-const saveSlotsList = saveSlotsDialog.querySelector<HTMLElement>('.save-slots-list')!
-const saveSlotsMessage = saveSlotsDialog.querySelector<HTMLElement>('.save-slots-message')!
-const saveStorageInfo = saveSlotsDialog.querySelector<HTMLElement>('[data-save-storage]')!
-const saveSlotName = saveSlotsDialog.querySelector<HTMLInputElement>('[name=name]')!
+const saveSlotsPanel = requireElement<HTMLElement>('#save-slots-panel')
+const saveSlotsList = saveSlotsPanel.querySelector<HTMLElement>('.save-slots-list')!
+const saveSlotsMessage = saveSlotsPanel.querySelector<HTMLElement>('.save-slots-message')!
+const saveStorageInfo = saveSlotsPanel.querySelector<HTMLElement>('[data-save-storage]')!
+const saveSlotName = saveSlotsPanel.querySelector<HTMLInputElement>('[name=name]')!
+makeDraggable(saveSlotsPanel.querySelector<HTMLElement>('.panel-header')!, saveSlotsPanel)
+makeResizable(saveSlotsPanel)
+let saveSlotsPausedSpeed = 0
+function setSaveSlotsPanelOpen(open: boolean): void {
+  saveSlotsPanel.hidden = !open
+  if (open) {
+    saveSlotsPausedSpeed = game.snapshot.speed
+    if (saveSlotsPausedSpeed !== 0) game.setSpeed(0)
+  } else if (saveSlotsPausedSpeed !== 0) {
+    game.setSpeed(saveSlotsPausedSpeed)
+  }
+}
 const formatSaveTime = (value: number) => new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' }).format(value)
 let serverSaveSlots: ServerSaveSlot[] | null = null
 function bindLoadedGame(loaded: GameState, message: string): void {
@@ -3813,12 +3834,12 @@ async function openSaveSlots(): Promise<void> {
   if (multiplayer.status.mode === 'client') { showToast('Nur der Host kann Spielstände verwalten', true); return }
   saveSlotsMessage.textContent = ''
   saveSlotName.value = ''
-  saveSlotsDialog.showModal()
+  setSaveSlotsPanelOpen(true)
   await renderSaveSlots()
   saveSlotName.focus()
 }
-saveSlotsDialog.querySelector('[data-close]')!.addEventListener('click', () => saveSlotsDialog.close())
-saveSlotsDialog.querySelector<HTMLFormElement>('[data-save-slot]')!.addEventListener('submit', async event => {
+saveSlotsPanel.querySelector('[data-close]')!.addEventListener('click', () => setSaveSlotsPanelOpen(false))
+saveSlotsPanel.querySelector<HTMLFormElement>('[data-save-slot]')!.addEventListener('submit', async event => {
   event.preventDefault()
   try {
     if (serverSaveSlots) {
@@ -3833,7 +3854,7 @@ saveSlotsDialog.querySelector<HTMLFormElement>('[data-save-slot]')!.addEventList
     await renderSaveSlots()
   } catch (error) { saveSlotsMessage.textContent = error instanceof Error ? error.message : 'Spielstand konnte nicht gespeichert werden' }
 })
-saveSlotsDialog.addEventListener('click', async event => {
+saveSlotsPanel.addEventListener('click', async event => {
   const button = (event.target as Element).closest<HTMLButtonElement>('[data-load-slot],[data-overwrite-slot],[data-delete-slot]')
   if (!button) return
   const id = button.dataset.loadSlot ?? button.dataset.overwriteSlot ?? button.dataset.deleteSlot!
@@ -3842,7 +3863,7 @@ saveSlotsDialog.addEventListener('click', async event => {
     try { loaded = serverSaveSlots ? GameState.fromJSON((await loadServerSave(id)).snapshot) : GameState.loadSlot(id) } catch { loaded = null }
     if (!loaded) { saveSlotsMessage.textContent = 'Dieser Spielstand ist ungültig oder nicht mehr vorhanden.'; renderSaveSlots(); return }
     bindLoadedGame(loaded, 'Lokaler Spielstand geladen')
-    saveSlotsDialog.close()
+    setSaveSlotsPanelOpen(false)
     return
   }
   if (button.dataset.overwriteSlot) {
