@@ -7260,7 +7260,9 @@ export class GameState {
     if (costs.size !== this.pedestrianCongestionCosts.size ||
       [...costs].some(([key, value]) => this.pedestrianCongestionCosts.get(key) !== value)) {
       this.pedestrianCongestionCosts = costs
-      // Cost changes expire gradually. Topology changes still invalidate immediately.
+      // Congestion actually changed: cached routes may no longer reflect it, so
+      // invalidate immediately instead of waiting out their gradual expiry.
+      this.pedestrianPathCache.clear()
     }
   }
   /** Keep the current segment and destination; only reconsider the journey between them.
