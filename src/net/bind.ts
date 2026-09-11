@@ -24,9 +24,10 @@ const boundGames = new WeakSet<GameState>()
 export function enableMultiplayerCommands(game: GameState): void {
   if (boundGames.has(game)) return
   boundGames.add(game)
-  game.place = wrap(game, game.place, (kind, x, z) => ({
+  game.place = wrap(game, game.place, (kind, x, z, decorationSlot) => ({
     type: 'place',
     kind,
+    decorationSlot,
     x,
     z,
   }))
@@ -55,7 +56,7 @@ export function enableMultiplayerCommands(game: GameState): void {
       previousPath,
     }),
   )
-  game.bulldoze = wrap(game, game.bulldoze, (x, z) => ({ type: 'bulldoze', x, z }))
+  game.bulldoze = wrap(game, game.bulldoze, (x, z, buildingId) => ({ type: 'bulldoze', x, z, buildingId }))
   game.bulldozeArea = wrap(game, game.bulldozeArea, (cells) => ({
     type: 'bulldozeArea',
     cells: [...cells],
@@ -237,7 +238,12 @@ export function enableMultiplayerCommands(game: GameState): void {
   game.updateBuildingPrice = wrap(
     game,
     game.updateBuildingPrice,
-    (buildingId, price) => ({ type: 'updateBuildingPrice', buildingId, price }),
+    (buildingId, price, allOfKind) => ({
+      type: 'updateBuildingPrice',
+      buildingId,
+      price,
+      allOfKind,
+    }),
   )
   game.updateEntryPrice = wrap(game, game.updateEntryPrice, (price) => ({
     type: 'updateEntryPrice',

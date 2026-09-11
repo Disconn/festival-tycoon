@@ -1,4 +1,5 @@
 import { musicTaste, musicAppeal, type MusicGenre } from './musicTaste'
+import { isScenery, isEdgeScenery, sceneryOverlaps, sceneryTransform } from './scenery'
 import { syncStageAudience } from './stageAudience'
 import { stageSiteIssue } from './stageSite'
 import { isStageAudienceCell, stageDistance, buildingFootprint, occupiesBuildingCell, stageDesignIssue, stageStats, type StageDesign } from './stageDesign'
@@ -169,6 +170,7 @@ import type { TerrainEditMode, TerrainSnapshot } from './terrain'
 export type Cell = { x: number; z: number; elevation: number }
 
 export type PlacedBuilding = {
+  decorationSlot?: number
   id: string
   kind: BuildingKind
   x: number
@@ -1687,7 +1689,7 @@ export class GameState {
     return { ok: true, message: 'Sicherheitseinstellungen gespeichert' }
   }
 
-  getAt(x: number, z: number, elevation?: number): PlacedBuilding | undefined {
+  getAt(x: number, z: number, elevation?: number, localX?: number, localZ?: number): PlacedBuilding | undefined {
     const matches = this.getBuildingsAtCell(x, z).filter(
       (item) =>
         elevation === undefined || this.volumesOverlap(item, elevation, 0.01),
@@ -1695,6 +1697,19 @@ export class GameState {
     return matches.sort((a, b) => {
       const elevationDifference = b.elevation - a.elevation
       if (elevationDifference !== 0) return elevationDifference
+      if (localX !== undefined && localZ !== undefined) {
+        const distance = (item: PlacedBuilding) => {
+          if (item.decorationSlot === undefined) return 2
+          const position = sceneryTransform(item)
+          if (isEdgeScenery(item.kind)) {
+            const perpendicular = item.decorationSlot % 2 ? Math.abs(position.x - localX) : Math.abs(position.z - localZ)
+            if (perpendicular > .16) return 3
+          } else if (Math.abs(position.x - localX) > .25 || Math.abs(position.z - localZ) > .25) return 3
+          return (position.x - localX) ** 2 + (position.z - localZ) ** 2
+        }
+        const difference = distance(a) - distance(b)
+        if (difference !== 0) return difference
+      }
       if (a.kind === 'path' && b.kind !== 'path') return 1
       if (b.kind === 'path' && a.kind !== 'path') return -1
       return 0
@@ -2049,7 +2064,11 @@ export class GameState {
     this.emit()
   }
 
-  updateBuildingPrice(buildingId: string, price: number): void {
+  updateBuildingPrice(
+    buildingId: string,
+    price: number,
+    allOfKind = false,
+  ): void {
     const building = this.state.buildings.find((item) => item.id === buildingId)
     if (
       !building ||
@@ -2059,7 +2078,14 @@ export class GameState {
     ) {
       return
     }
-    building.price = this.normalizePrice(price)
+    const normalized = this.normalizePrice(price)
+    if (allOfKind) {
+      this.state.buildings.forEach((item) => {
+        if (item.kind === building.kind) item.price = normalized
+      })
+    } else {
+      building.price = normalized
+    }
     this.emit()
   }
 
@@ -2591,7 +2617,11 @@ export class GameState {
     return null
   }
 
-  canPlace(kind: BuildingKind, x: number, z: number): ActionResult {
+  canPlace(kind: BuildingKind, x: number, z: number, decorationSlot?: number): ActionResult {
+    if (isScenery(kind)) {
+      decorationSlot ??= isEdgeScenery(kind) ? this.state.buildRotation : 0
+      if (!Number.isInteger(decorationSlot) || decorationSlot < 0 || decorationSlot > 3) return { ok: false, message: 'Ungültige Dekoposition' }
+    } else if (decorationSlot !== undefined) return { ok: false, message: 'Dieses Objekt benötigt ein ganzes Feld' }
     const selected = kind==='stage' ? this.state.festival.stageTemplates?.find(t=>t.name===this.state.festival.selectedStageTemplate) : undefined
     if(selected){const issue=this.checkStageSite(selected,x,z,this.state.buildRotation,this.getPlaceElevation(x,z));if(issue)return {ok:false,message:issue}}
 
@@ -2626,7 +2656,7 @@ export class GameState {
     if (this.isWaterTerrain(x, z) && placeElevation <= WATER_HEIGHT) {
       return { ok: false, message: 'Im Wasser kann nicht gebaut werden' }
     }
-    const collision = this.findCollision(kind, x, z, placeElevation)
+    const collision = this.findCollision(kind, x, z, placeElevation, decorationSlot)
     if (
       (kind === 'securityGate' || kind === 'bench' || kind === 'wasteBin') &&
       this.state.buildings.some(
@@ -2681,14 +2711,14 @@ export class GameState {
         kind === 'wasteBin') &&
         collision?.kind === 'path') ||
       (kind === 'fence' && collision?.kind === 'fence') ||
-      collision?.kind === 'tree'
+      (collision?.kind === 'tree' && !isScenery(kind))
     if (
       (collision && !allowedOverlap) ||
       this.coasterOccupiesVolume(x, z, placeElevation, BUILDINGS[kind].height)
     ) {
       return { ok: false, message: 'Auf dieser Höhe ist nicht genug Platz' }
     }
-    const clearCost = this.getTreeClearCost(
+    const clearCost = isScenery(kind) ? 0 : this.getTreeClearCost(
       x,
       z,
       placeElevation,
@@ -2710,22 +2740,24 @@ export class GameState {
     }
   }
 
-  place(kind: BuildingKind, x: number, z: number): ActionResult {
+  place(kind: BuildingKind, x: number, z: number, decorationSlot?: number): ActionResult {
+    if (isScenery(kind)) decorationSlot ??= isEdgeScenery(kind) ? this.state.buildRotation : 0
     if (kind === 'ambulanceGarage') {
       return this.placeAmbulanceGarage(x, z)
     }
     if (kind === 'busDepot') return this.placeBusDepot(x, z)
     if (kind === 'wasteDepot') return this.placeWasteDepot(x, z)
     if (kind === 'busStop') return this.placeBusStop(x, z)
-    const result = this.canPlace(kind, x, z)
+    const result = this.canPlace(kind, x, z, decorationSlot)
     if (!result.ok) return result
 
     const placeElevation = this.getPlaceElevation(x, z)
-    this.clearTreesAt(x, z, placeElevation, BUILDINGS[kind].height)
+    if (!isScenery(kind)) this.clearTreesAt(x, z, placeElevation, BUILDINGS[kind].height)
     const design = kind === 'stage' ? this.state.festival.stageTemplates?.find(t=>t.name===this.state.festival.selectedStageTemplate) : undefined
     this.state.money -= BUILDINGS[kind].cost + (design ? stageStats(design).cost : 0)
     this.state.buildings.push({
       stageDesign: design ? structuredClone(design) : undefined,
+      decorationSlot,
       id: this.nextId('building'),
       kind,
       x,
@@ -3275,7 +3307,8 @@ export class GameState {
     const existingPath = occupants.find((building) => building.kind === 'path')
     const blocking = occupants.find(
       (building) =>
-        building.kind !== 'tree' && !PATH_COMPATIBLE_KINDS.has(building.kind),
+        building.kind !== 'tree' && !PATH_COMPATIBLE_KINDS.has(building.kind) &&
+        !(building.decorationSlot !== undefined && isEdgeScenery(building.kind) && slope === 0),
     )
     if (
       blocking ||
@@ -3400,8 +3433,9 @@ export class GameState {
     }
   }
 
-  bulldoze(x: number, z: number): ActionResult {
-    const result = this.bulldozeAt(x, z)
+  bulldoze(x: number, z: number, buildingId?: string): ActionResult {
+    if (buildingId && !this.state.buildings.some(b => b.id === buildingId && occupiesBuildingCell(b, x, z))) return { ok: false, message: 'Objekt nicht mehr vorhanden' }
+    const result = this.bulldozeAt(x, z, buildingId)
     const cell = this.state.festival.infrastructure.ground[groundKey(x, z)]
     if (result.ok && cell) {
       if (!this.state.buildings.some(b => b.kind === 'path' && b.x === x && b.z === z)) delete cell.footway
@@ -3416,9 +3450,12 @@ export class GameState {
     let removed = 0
     let lastIssue = 'Auf der Fläche gibt es nichts abzureißen'
     for (const cell of unique.values()) {
-      const result = this.bulldoze(cell.x, cell.z)
-      if (result.ok) removed += 1
-      else if (result.message !== 'Hier gibt es nichts abzureißen') lastIssue = result.message
+      const limit = this.getBuildingsAtCell(cell.x, cell.z).length + 1
+      for (let i = 0; i < limit; i++) {
+        const result = this.bulldoze(cell.x, cell.z)
+        if (result.ok) removed += 1
+        else { if (result.message !== 'Hier gibt es nichts abzureißen') lastIssue = result.message; break }
+      }
     }
     return removed > 0
       ? {
@@ -3428,11 +3465,11 @@ export class GameState {
       : { ok: false, message: lastIssue }
   }
 
-  private bulldozeAt(x: number, z: number): ActionResult {
+  private bulldozeAt(x: number, z: number, buildingId?: string): ActionResult {
     const busStop = this.state.logistics.busStops.find(
       (stop) => stop.x === x && stop.z === z,
     )
-    if (busStop) {
+    if (busStop && (!buildingId || busStop.id === buildingId)) {
       this.state.logistics.busStops =
         this.state.logistics.busStops.filter(
           (stop) => stop.id !== busStop.id,
@@ -3444,7 +3481,7 @@ export class GameState {
       this.emit()
       return { ok: true, message: 'Bushaltestelle entfernt' }
     }
-    const building = this.getAt(x, z)
+    const building = buildingId ? this.state.buildings.find(b => b.id === buildingId) : this.getAt(x, z)
     if (!building) {
       const parking = this.state.logistics.parkingCells.find(
         (cell) => cell.x === x && cell.z === z,
@@ -9685,6 +9722,7 @@ export class GameState {
     for (const building of this.getBuildingsAtCell(x, z)) {
       if (
         PEDESTRIAN_SOLID_KINDS.has(building.kind) &&
+        building.decorationSlot === undefined &&
         !isStageAudienceCell(building,x,z) &&
         this.volumesOverlap(building, elevation, 0.28)
       ) {
@@ -10365,13 +10403,16 @@ export class GameState {
     x: number,
     z: number,
     elevation: number,
+    decorationSlot?: number,
   ): PlacedBuilding | undefined {
     const height = BUILDINGS[kind].height
-    return this.state.buildings.find(
+    const collisions = this.state.buildings.filter(
       (building) =>
         occupiesBuildingCell(building,x,z) &&
+        sceneryOverlaps({ kind, rotation: this.state.buildRotation, decorationSlot }, building) &&
         this.volumesOverlap(building, elevation, height),
     )
+    return collisions.find(building => building.kind !== 'tree') ?? collisions[0]
   }
 
   private recalculateCoasterTrackState(coaster: Coaster): void {

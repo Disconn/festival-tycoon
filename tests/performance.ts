@@ -13,6 +13,7 @@ else {
 const parsed = JSON.parse(raw)
 raw = typeof parsed.snapshot === 'string' ? parsed.snapshot : raw
 const steps = Number(process.argv[3] ?? 120)
+if (!Number.isSafeInteger(steps) || steps < 1 || steps > 100000) throw new Error('Tick count must be an integer between 1 and 100000')
 for (const speed of [1, 2, 3]) {
   const game = GameState.fromJSON(raw)!
   if (!game) throw new Error('Invalid save')

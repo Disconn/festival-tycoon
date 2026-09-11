@@ -257,6 +257,8 @@ export function testSupplyChain(fixture: (count?: number) => GameState) {
   const congestedRoute = (bypassGame as any).findPath(startCell, [endCell])
   assert.ok(!congestedRoute.some((cell: any) => cell.x === 3 && cell.z === -18), 'new journeys also avoid the bottleneck')
   bypassState.visitors.splice(1)
+  // Crowd costs now expire gradually instead of flushing all visitors' routes.
+  bypassState.simTick += SIMULATION_CONFIG.pathfinding.pathCacheLifetimeTicks * 2
   ;(bypassGame as any).walkVisitors(0.000001)
   const clearedRoute = (bypassGame as any).findPath(startCell, [endCell])
   assert.equal(clearedRoute.length, 4, 'direct path becomes attractive again once the crowd clears')
@@ -287,3 +289,4 @@ export function testSupplyChain(fixture: (count?: number) => GameState) {
   console.log('PASS congestion-aware detours, cached route invalidation and recovery after crowds clear')
   console.log('PASS physical delivery and distribution, minimum stock, waste conservation, soil requirements, in-transit saves and multiplayer')
 }
+import { SIMULATION_CONFIG } from '../src/game/simulationConfig'

@@ -1,4 +1,5 @@
 import { GENRES } from './game/musicTaste'
+import { isScenery, scenerySlot, isEdgeScenery } from './game/scenery'
 import { makeDraggable } from './dragPanel'
 import { mountStageEditor } from './stageEditor'
 import { stageStats } from './game/stageDesign'
@@ -288,6 +289,8 @@ app.innerHTML = `
       </section>
       <section class="build-flyout panel" data-build-panel="decoration">
         <h3>🌳 Dekoration</h3>
+        <p class="scenery-help">Kleine Deko: bis zu 4 pro Feld. Hecken und Banner stehen an der Feldkante. Die Maus bestimmt die Position.</p>
+        <button id="rotate-scenery" type="button">↻ Drehen / nächste Seite <kbd>R</kbd></button>
         <div id="decoration-tools" class="tools"></div>
       </section>
       <section class="build-flyout panel" data-build-panel="festival">
@@ -500,6 +503,7 @@ app.innerHTML = `
         <div id="price-options" class="coaster-options">
           <label for="entity-price">Preis pro Besucher</label>
           <div class="price-input"><input id="entity-price" type="number" min="0" max="1000000" step="1" /> <b>€</b></div>
+          <button id="apply-price-to-kind" type="button">Für alle gleichen Läden übernehmen</button>
         </div>
         <div id="coaster-options" class="coaster-options">
           <label for="operation-mode">Betriebsmodus</label>
@@ -687,7 +691,7 @@ Object.values(BUILDINGS).forEach((building, index) => {
         ? logisticsTools
       : building.kind === 'ride'
         ? rideTools
-        : ['tree', 'hedge', 'fence', 'bench', 'lighting'].includes(building.kind)
+        : isScenery(building.kind) || ['fence', 'bench', 'lighting'].includes(building.kind)
           ? decorationTools
           : ['stage', 'directionalSpeaker', 'omniSpeaker'].includes(building.kind)
             ? festivalTools
@@ -705,7 +709,7 @@ Object.values(BUILDINGS).forEach((building, index) => {
   container.insertAdjacentHTML(
     'beforeend',
     `<button class="tool" data-tool="${building.kind}">
-      <span>${building.icon}</span>
+      <span class="building-preview" data-preview-kind="${building.kind}">${building.icon}</span>
       <em>${building.name}<small>${formatMoney(building.cost)}</small></em>
       <kbd>${index + 1}</kbd>
     </button>`,
@@ -863,6 +867,8 @@ const dynamicsInfo = requireElement<HTMLElement>('#dynamics-info')
 const telemetryChart = requireElement<HTMLCanvasElement>('#telemetry-chart')
 const priceOptions = requireElement<HTMLElement>('#price-options')
 const entityPriceInput = requireElement<HTMLInputElement>('#entity-price')
+const applyPriceToKindButton =
+  requireElement<HTMLButtonElement>('#apply-price-to-kind')
 const coasterOptions = requireElement<HTMLElement>('#coaster-options')
 const dispatchModeSelect = requireElement<HTMLSelectElement>('#dispatch-mode')
 const dispatchIntervalInput = requireElement<HTMLInputElement>('#dispatch-interval')
@@ -1046,6 +1052,7 @@ const view = new WorldView(
 )
 
 const supplyPlanner = mountLogisticsUI(() => game, view, showToast)
+view.setPlacementValidator((kind, x, z, slot) => game.canPlace(kind, x, z, slot).ok)
 const staffDetails = mountStaffDetails(() => game, view, showToast, () => supplyPlanner.releaseTool())
 
 function bindGameState(nextGame: GameState): void {
@@ -1144,7 +1151,7 @@ function bindGameState(nextGame: GameState): void {
             : snapshot.selectedTool === 'medicalArea' ||
                 snapshot.selectedTool === 'securityGate'
               ? 'emergency'
-              : ['tree', 'hedge', 'fence', 'bench', 'lighting'].includes(
+              : isScenery(snapshot.selectedTool) || ['fence', 'bench', 'lighting'].includes(
                     snapshot.selectedTool,
                   )
                 ? 'decoration'
@@ -1626,7 +1633,7 @@ function handleCellClick(cell: CellPosition): void {
       }
       return
     }
-    const building = game.getAt(cell.x, cell.z)
+    const building = cell.buildingId ? game.snapshot.buildings.find(b => b.id === cell.buildingId) : game.getAt(cell.x, cell.z, undefined, cell.localX, cell.localZ)
     if (building) openEntityInfoForBuilding(building.id)
     else if (game.getCampingCellAt(cell.x, cell.z)) showToast('Ausgewiesener Zeltbereich')
     else {
@@ -1715,7 +1722,7 @@ function handleCellClick(cell: CellPosition): void {
               z: cell.z + bulldozeBrushSize - 1,
             }),
           )
-        : game.bulldoze(cell.x, cell.z)
+        : game.bulldoze(cell.x, cell.z, cell.buildingId ?? game.getAt(cell.x, cell.z, undefined, cell.localX, cell.localZ)?.id)
     showToast(result.message, !result.ok)
     return
   }
@@ -1735,7 +1742,7 @@ function handleCellClick(cell: CellPosition): void {
               cell.z,
               !game.getPowerCableAt(cell.x, cell.z),
             )
-      : game.place(tool as BuildingKind, cell.x, cell.z)
+      : game.place(tool as BuildingKind, cell.x, cell.z, scenerySlot(tool, cell.localX, cell.localZ, game.snapshot.buildRotation))
   showToast(result.message, !result.ok)
 }
 
@@ -2452,7 +2459,7 @@ function updateContextHelp(): void {
     return
   }
 
-  const existing = game.getAt(hoveredCell.x, hoveredCell.z)
+  const existing = game.getAt(hoveredCell.x, hoveredCell.z, undefined, hoveredCell.localX, hoveredCell.localZ)
   if (tool === 'inspect') {
     const height = game.getTerrainHeight(hoveredCell.x, hoveredCell.z)
     const dump = game.getWasteDumpAt(hoveredCell.x, hoveredCell.z)
@@ -2538,7 +2545,8 @@ function updateContextHelp(): void {
         ? 'Gehweg als Überweg über die Straße. Besucher laufen oben, Autos darunter.'
         : 'Auf der Straße nur als Überweg: Bauhöhe auf Ebene 1 stellen.'
   } else {
-    contextHelp.textContent = game.canPlace(tool, hoveredCell.x, hoveredCell.z).message
+    contextHelp.textContent = game.canPlace(tool, hoveredCell.x, hoveredCell.z, scenerySlot(tool, hoveredCell.localX, hoveredCell.localZ, game.snapshot.buildRotation)).message
+    if (isScenery(tool)) contextHelp.textContent += isEdgeScenery(tool) ? ' · Maus: Feldkante · R: nächste Seite' : ' · Maus: Viertelfeld · R: drehen'
   }
 }
 
@@ -2775,6 +2783,11 @@ function updateEntityPanel(): void {
     const hasPrice =
       building.kind === 'food' || building.kind === 'ride' || building.kind === 'alcohol'
     priceOptions.classList.toggle('visible', hasPrice)
+    applyPriceToKindButton.hidden = !hasPrice
+    if (hasPrice) {
+      applyPriceToKindButton.textContent =
+        `Für alle ${BUILDINGS[building.kind].name}-Gebäude übernehmen`
+    }
     if (hasPrice && document.activeElement !== entityPriceInput) {
       entityPriceInput.value = String(building.price)
     }
@@ -2855,6 +2868,7 @@ function updateEntityPanel(): void {
     button.classList.toggle('active', button.dataset.entityTab === entityTab)
   })
   priceOptions.classList.add('visible')
+  applyPriceToKindButton.hidden = true
   if (document.activeElement !== entityPriceInput) {
     entityPriceInput.value = String(coaster.ticketPrice)
   }
@@ -3052,12 +3066,19 @@ function showToast(message: string, isError = false): void {
   }, 2200)
 }
 
+document.querySelector('#rotate-scenery')?.addEventListener('click', () => game.rotateBuild())
 document.querySelectorAll<HTMLButtonElement>('[data-build-category]').forEach((button) => {
   button.addEventListener('click', () => {
     const category = button.dataset.buildCategory
     const wasOpen = button.classList.contains('open')
     closeBuildSubmenus()
     if (!wasOpen) {
+      document.querySelectorAll<HTMLElement>(`[data-build-panel="${category}"] [data-preview-kind]`).forEach(element => {
+        const kind = element.dataset.previewKind as BuildingKind
+        const image = document.createElement('img')
+        image.src = view.buildingThumbnail(kind); image.alt = ''; image.setAttribute('aria-hidden', 'true')
+        element.replaceChildren(image); delete element.dataset.previewKind
+      })
       button.classList.add('open')
       document
         .querySelector<HTMLElement>(`[data-build-panel="${category}"]`)
@@ -3693,6 +3714,25 @@ entityPriceInput.addEventListener('change', () => {
   } else {
     game.updateBuildingPrice(selectedEntity.id, Number(entityPriceInput.value))
   }
+})
+
+applyPriceToKindButton.addEventListener('click', () => {
+  if (selectedEntity?.type !== 'building') return
+  const building = game.snapshot.buildings.find(
+    (item) => item.id === selectedEntity?.id,
+  )
+  if (!building) return
+  const count = game.snapshot.buildings.filter(
+    (item) => item.kind === building.kind,
+  ).length
+  game.updateBuildingPrice(
+    building.id,
+    Number(entityPriceInput.value),
+    true,
+  )
+  showToast(
+    `Preis für ${count} ${BUILDINGS[building.kind].name}-Gebäude übernommen`,
+  )
 })
 
 document.querySelector<HTMLButtonElement>('#height-down')?.addEventListener('click', () => {

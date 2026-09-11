@@ -9,6 +9,12 @@ export const BUILDING_KINDS = [
   'securityGate',
   'tree',
   'hedge',
+  'shrub',
+  'flowerbed',
+  'planter',
+  'rock',
+  'statue',
+  'banner',
   'fence',
   'bench',
   'lighting',
@@ -274,6 +280,12 @@ export const BUILDINGS: Record<BuildingKind, BuildingDefinition> = {
     color: 0xc23b4b,
     icon: '🎆',
   },
+  shrub: { kind: 'shrub', name: 'Blütenstrauch', cost: 25, upkeep: 1, capacity: 0, appeal: 3, defaultPrice: 0, height: .5, color: 0x659458, icon: '🌺' },
+  flowerbed: { kind: 'flowerbed', name: 'Blumenbeet', cost: 30, upkeep: 2, capacity: 0, appeal: 4, defaultPrice: 0, height: .22, color: 0xd981a0, icon: '🌷' },
+  planter: { kind: 'planter', name: 'Pflanzkübel', cost: 45, upkeep: 1, capacity: 0, appeal: 4, defaultPrice: 0, height: .65, color: 0xbb7956, icon: '🪴' },
+  rock: { kind: 'rock', name: 'Zierfelsen', cost: 35, upkeep: 0, capacity: 0, appeal: 2, defaultPrice: 0, height: .45, color: 0x8e9998, icon: '🪨' },
+  statue: { kind: 'statue', name: 'Musikskulptur', cost: 120, upkeep: 1, capacity: 0, appeal: 8, defaultPrice: 0, height: 1.2, color: 0xc0a468, icon: '🎵' },
+  banner: { kind: 'banner', name: 'Festivalbanner', cost: 40, upkeep: 1, capacity: 0, appeal: 3, defaultPrice: 0, height: 1.3, color: 0xc95670, icon: '🚩' },
 }
 
 export const STARTING_MONEY = SIMULATION_CONFIG.economy.startingMoney

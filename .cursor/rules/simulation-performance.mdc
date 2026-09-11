@@ -1,0 +1,9 @@
+---
+description: Deterministic ticks and performance regression prevention for Festival Tycoon
+alwaysApply: true
+---
+
+Read and follow the root `AGENTS.md` for all changes in this repository.
+It defines fixed-tick simulation, decision budgets, shared spatial indexes,
+multi-goal routing, cache invalidation, static asset batching, versioning
+and required regression/performance checks. See `docs/performance.md` for measurements.

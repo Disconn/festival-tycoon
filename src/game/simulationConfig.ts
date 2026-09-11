@@ -433,6 +433,12 @@ export const SIMULATION_CONFIG = {
     preferenceMinimum: 0.15,
     preferenceRandomRange: 0.85,
     sources: {
+      shrub: { beauty: 7, party: 0, range: 2 },
+      flowerbed: { beauty: 9, party: 0, range: 2 },
+      planter: { beauty: 9, party: 0, range: 2 },
+      rock: { beauty: 5, party: 0, range: 2 },
+      statue: { beauty: 15, party: 0, range: 3 },
+      banner: { beauty: 7, party: 1, range: 2 },
       tree: { beauty: 11, party: 0, range: 4 },
       hedge: { beauty: 8, party: 0, range: 3 },
       fence: { beauty: -3, party: 0, range: 1 },

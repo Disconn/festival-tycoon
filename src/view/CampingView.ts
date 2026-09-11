@@ -2,6 +2,7 @@ import { batchCampMeshes } from './batchCampMeshes'
 import {
   BoxGeometry,
   CanvasTexture,
+  Color,
   ConeGeometry,
   CylinderGeometry,
   Group,
@@ -312,7 +313,8 @@ export class CampingView {
   private createAbandonedTentModel(color: number, decay: number): Group {
     const group = new Group()
     const wear = Math.max(0, Math.min(1, decay / 100))
-    const faded = Math.round(color * (1 - wear * 0.45) + 0x6b5340 * wear)
+    // Blend channels in linear color space; arithmetic on packed RGB causes hue jumps.
+    const faded = new Color(color).lerp(new Color(0x6b5340), wear * 0.45)
     const tent = new Mesh(
       new ConeGeometry(0.39, 0.52, 4),
       new MeshStandardMaterial({ color: faded, roughness: 0.95 }),

@@ -575,6 +575,15 @@ button {
   text-align: center;
 }
 
+.tool:has(.building-preview) { grid-template-columns: 60px 1fr; min-height: 64px; }
+.building-preview img { display: block; width: 56px; height: 56px; object-fit: contain; image-rendering: pixelated; border: 1px solid #587165; }
+#decoration-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#decoration-tools .tool { grid-template-columns: 1fr; justify-items: center; text-align: center; padding: 6px; background: #263d36; border-color: #4f6c5d; }
+#decoration-tools .building-preview img { width: 72px; height: 72px; margin-bottom: 4px; }
+#decoration-tools .tool.active { background: #456550; border-color: #f0cf7d; }
+.scenery-help { font-size: 11px; line-height: 1.5; color: #ccdacb; }
+#rotate-scenery { margin-bottom: 8px; width: 100%; padding: 7px; color: #f2dfb5; background: #476859; border: 1px solid #819b80; cursor: pointer; }
+
 .tool em {
   font-style: normal;
   font-weight: 700;

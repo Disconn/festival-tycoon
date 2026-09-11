@@ -16,6 +16,7 @@ import {
   neighborhoodPeople,
   panicSpreadChance,
   spontaneousPanicChance,
+  visitorBubbleKind,
 } from '../src/game/visitorBubbles'
 import { SIMULATION_CONFIG } from '../src/game/simulationConfig'
 
@@ -40,6 +41,18 @@ export function testOperations(fixture:(count?:number)=>GameState):void {
   assert.ok(buyer.route.length>0,'buyer walks away before eating')
   assert.equal(buyer.state,'exploring');assert.equal(buyer.targetId,null)
   assert.equal(ss.festival.infrastructure.shops[shop.id]!.food,2)
+  assert.ok(shopping.place('food',6,-20).ok)
+  assert.ok(shopping.place('alcohol',7,-20).ok)
+  shopping.updateBuildingPrice(shop.id, 17, true)
+  assert.ok(
+    ss.buildings.filter(b=>b.kind==='food').every(b=>b.price===17),
+    'one price can be applied to all shops of the same type',
+  )
+  assert.notEqual(
+    ss.buildings.find(b=>b.kind==='alcohol')!.price,
+    17,
+    'bulk price does not affect other shop types',
+  )
 
   const gates=fixture(0), from={x:2,z:-20,elevation:0}, gate={x:3,z:-20,elevation:0}
   assert.ok((gates as any).findPath(from,[gate]))
@@ -147,6 +160,30 @@ export function testOperations(fixture:(count?:number)=>GameState):void {
   assert.equal(
     neighborhoodPeople({ cellX: 0, cellZ: 0, cellElevation: 0 }, (x, z) => x === 0 && z === 0 ? 6 : 2),
     22,
+  )
+  const festiveCrowdVisitor = {
+    state: 'exploring',
+    emotion: 'sad',
+    needs: { hunger: 90, toilet: 90, fun: 96, energy: 90 },
+    isDancing: false,
+    isConversing: false,
+    crowding: 90,
+    crowdStress: 30,
+    isPanicking: false,
+    localPartyMood: 92,
+  }
+  assert.equal(
+    visitorBubbleKind(festiveCrowdVisitor),
+    'happy',
+    'happy festival guests do not look unhappy from brief crowding',
+  )
+  assert.equal(
+    visitorBubbleKind({
+      ...festiveCrowdVisitor,
+      crowdStress: SIMULATION_CONFIG.crowding.crushStress,
+    }),
+    'crushed',
+    'sustained critical crowding still overrides festival mood',
   )
 
   const leftover = abandonVisitorCamp(

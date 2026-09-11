@@ -1,4 +1,5 @@
 import { updateStageBand } from './stageBand'
+import { isScenery, scenerySlot, sceneryTransform } from '../game/scenery'
 import { createRetroBuilding, batchRetroBuildings } from './retroBuildings'
 import { bindTouchCamera } from './touchCamera'
 import { stageSiteIssue } from '../game/stageSite'
@@ -51,6 +52,7 @@ import {
   Vector2,
   Vector3,
   WebGLRenderer,
+  WebGLRenderTarget,
 } from 'three'
 import { BUILDINGS, WORLD_SIZE } from '../game/catalog'
 import type { BuildingKind } from '../game/catalog'
@@ -86,7 +88,7 @@ import {
   WATER_HEIGHT,
 } from '../game/terrain'
 
-export type CellPosition = { x: number; z: number }
+export type CellPosition = { x: number; z: number; localX?: number; localZ?: number; buildingId?: string }
 export type PathAnchor = CellPosition & { elevation: number }
 
 type CellHandler = (cell: CellPosition) => void
@@ -119,6 +121,7 @@ export class WorldView {
   private terrainGroup = new Group()
   private terrainFingerprint = ''
   private buildings = new Group()
+  private staticBuildingBatches = new Group()
   private treeTrunkGeometry = new CylinderGeometry(0.1, 0.14, 0.8, 8)
   private treeCrownGeometry = new ConeGeometry(0.52, 1.25, 9)
   private treeTrunkMaterial = new MeshStandardMaterial({ color: 0x795437 })
@@ -245,6 +248,42 @@ export class WorldView {
   private cashEffectModels = new Map<string, Sprite>()
   private preview: Mesh
   private previewArrow: Mesh
+  private sceneryPreview = new Group()
+  private sceneryPreviewKind = ''
+  private placementValidator: ((kind: BuildingKind, x: number, z: number, slot?: number) => boolean) | null = null
+
+  setPlacementValidator(validate: (kind: BuildingKind, x: number, z: number, slot?: number) => boolean): void { this.placementValidator = validate }
+
+  buildingThumbnail(kind: BuildingKind): string {
+    const scene = new Scene()
+    scene.background = new Color(0x314943)
+    const model = this.createBuildingModel(kind, 0)
+    scene.add(model, new AmbientLight(0xffffff, 2))
+    const light = new DirectionalLight(0xfff0ce, 3)
+    light.position.set(-3, 5, 4); scene.add(light)
+    const camera = new OrthographicCamera(-.9, .9, .9, -.9, .1, 20)
+    camera.position.set(3, 2.8, 4); camera.lookAt(0, .65, 0)
+    const target = new WebGLRenderTarget(96, 96)
+    target.texture.colorSpace = this.renderer.outputColorSpace
+    const shadowUpdate = this.renderer.shadowMap.needsUpdate
+    const previousTarget = this.renderer.getRenderTarget()
+    const pixels = new Uint8Array(96 * 96 * 4)
+    try {
+      this.renderer.setRenderTarget(target)
+      this.renderer.render(scene, camera)
+      this.renderer.readRenderTargetPixels(target, 0, 0, 96, 96, pixels)
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 96
+      const context = canvas.getContext('2d')!
+      const data = context.createImageData(96, 96)
+      for (let y = 0; y < 96; y++) data.data.set(pixels.subarray((95 - y) * 384, (96 - y) * 384), y * 384)
+      context.putImageData(data, 0, 0)
+      return canvas.toDataURL()
+    } finally {
+      this.renderer.setRenderTarget(previousTarget)
+      this.renderer.shadowMap.needsUpdate = shadowUpdate
+      target.dispose(); disposeObject3D(model, false)
+    }
+  }
   private constructionAnchor: Mesh
   private constructionNext: Mesh
   private constructionSlope: Mesh
@@ -381,6 +420,7 @@ export class WorldView {
     this.scene.add(
       this.preview,
       this.previewArrow,
+      this.sceneryPreview,
       this.constructionAnchor,
       this.constructionNext,
       this.constructionSlope,
@@ -940,6 +980,7 @@ export class WorldView {
       hash = Math.imul(hash, 33) + item.x + item.z * 4096
       hash = Math.imul(hash, 33) + Math.round(item.elevation * 8)
       hash = Math.imul(hash, 33) + item.rotation
+      hash = Math.imul(hash, 33) + (item.decorationSlot ?? -1)
       hash = Math.imul(hash, 33) + (item.pathSlope ?? 0) + 4
       hash = Math.imul(hash, 33) + (item.queueDirection ?? 0)
       hash = Math.imul(hash, 33) + (item.queueEntryDirection ?? 0)
@@ -982,6 +1023,12 @@ export class WorldView {
             : 0
           : item.rotation
       model.rotation.y = modelDirection * (Math.PI / 2)
+      if (item.decorationSlot !== undefined && isScenery(item.kind)) {
+        const placement = sceneryTransform(item)
+        model.position.set(item.x + placement.x, item.elevation, item.z + placement.z)
+        model.rotation.y = placement.rotation * Math.PI / 2
+        model.scale.set(placement.sx, placement.sy, placement.sz)
+      }
       if (item.kind === 'path' && item.pathType === 'queue') {
         this.addQueueBarriers(model, item, items)
       }
@@ -997,7 +1044,8 @@ export class WorldView {
       }
       this.buildings.add(model)
     })
-    this.buildings.add(batchRetroBuildings(this.buildings))
+    this.staticBuildingBatches = batchRetroBuildings(this.buildings)
+    this.buildings.add(this.staticBuildingBatches)
   }
 
   private createBuildingModel(
@@ -2339,12 +2387,16 @@ export class WorldView {
       const moved = this.pointerDown.distanceTo(new Vector2(event.clientX, event.clientY))
       if (event.button === 0 && moved < 5 && !this.painting && !(event.pointerType === 'touch' && this.touchPanMode)) {
         this.setRayFromPointer(event)
-        const staffHit = this.raycaster.intersectObjects([...(this.staffView.group.visible?this.staffView.group.children:[]),...this.supplyChainView.getStaffMeshes()],true)[0]
+        const inspecting = this.currentSnapshot?.selectedTool === 'inspect'
+        const staffHit = inspecting ? this.raycaster.intersectObjects([...(this.staffView.group.visible?this.staffView.group.children:[]),...this.supplyChainView.getStaffMeshes()],true)[0] : undefined
         const staffId = staffHit?.object.userData.staffId
-        const visitorId = this.pickVisitor(event)
+        const visitorId = inspecting ? this.pickVisitor(event) : null
+        const scenery = inspecting || this.currentSnapshot?.selectedTool === 'bulldoze' ? this.pickScenery() : null
         if (typeof staffId === 'string') this.onStaffClick(staffId)
         else if (visitorId) {
           this.onVisitorClick(visitorId)
+        } else if (scenery) {
+          this.onCellClick(scenery)
         } else if (this.hoveredCell) {
           this.onCellClick(this.hoveredCell)
         }
@@ -2479,9 +2531,18 @@ export class WorldView {
     const x = Math.floor(point.x)
     const z = Math.floor(point.z)
     const half = this.worldSize / 2
-    this.hoveredCell = x >= -half && x < half && z >= -half && z < half ? { x, z } : null
+    this.hoveredCell = x >= -half && x < half && z >= -half && z < half ? { x, z, localX: point.x - x, localZ: point.z - z } : null
     this.onCellHover(this.hoveredCell)
     this.updatePreview()
+  }
+
+  private pickScenery(): CellPosition | null {
+    const hit = this.raycaster.intersectObjects(this.staticBuildingBatches.children, false)[0]
+    const id = hit?.instanceId === undefined ? undefined : hit.object.userData.buildingIds?.[hit.instanceId]
+    const building = id ? this.currentSnapshot?.buildings.find(b => b.id === id) : undefined
+    if (!building || !isScenery(building.kind)) return null
+    const position = sceneryTransform(building)
+    return { x: building.x, z: building.z, localX: position.x, localZ: position.z, buildingId: building.id }
   }
 
   private pickVisitor(event: PointerEvent): string | null {
@@ -2514,6 +2575,7 @@ export class WorldView {
   }
 
   private updatePreview(): void {
+    this.sceneryPreview.visible = false
     if (this.constructionActive) {
       this.preview.visible = false
       this.previewArrow.visible = false
@@ -2526,6 +2588,40 @@ export class WorldView {
     }
 
     const tool = this.currentSnapshot.selectedTool
+    if (isScenery(tool)) {
+      const cell = this.hoveredCell
+      const slot = scenerySlot(tool, cell.localX, cell.localZ, this.currentSnapshot.buildRotation)!
+      const placement = sceneryTransform({ kind: tool as BuildingKind, rotation: this.currentSnapshot.buildRotation, decorationSlot: slot })
+      if (tool !== this.sceneryPreviewKind) {
+        disposeChildren(this.sceneryPreview)
+        this.sceneryPreviewKind = tool
+        const model = createRetroBuilding(tool as BuildingKind)!
+        model.traverse(object => {
+          if (!(object instanceof Mesh)) return
+          const material = (object.material as MeshStandardMaterial).clone()
+          material.userData = {}; material.transparent = true; material.opacity = .72; material.depthWrite = false
+          object.material = material; object.castShadow = false
+        })
+        this.sceneryPreview.add(model)
+      }
+      const valid = this.placementValidator?.(tool as BuildingKind, cell.x, cell.z, slot) ?? true
+      this.sceneryPreview.visible = true
+      this.sceneryPreview.position.set(cell.x + placement.x, getTerrainHeight(this.currentSnapshot.terrain, cell.x, cell.z) + this.currentSnapshot.buildElevation, cell.z + placement.z)
+      this.sceneryPreview.rotation.y = placement.rotation * Math.PI / 2
+      this.sceneryPreview.scale.set(placement.sx, placement.sy, placement.sz)
+      this.sceneryPreview.traverse(object => { if (object instanceof Mesh) (object.material as MeshStandardMaterial).color.setHex(valid ? 0xffffff : 0xf05a65) })
+      this.preview.visible = true; this.previewArrow.visible = false
+      this.preview.position.copy(this.sceneryPreview.position); this.preview.position.y += .07
+      const edge = tool === 'hedge' || tool === 'banner'
+      this.preview.scale.set(edge ? .98 : .5, .12, edge ? .2 : .5)
+      this.preview.rotation.y = placement.rotation * Math.PI / 2
+      const marker = this.preview.material as MeshStandardMaterial
+      marker.color.setHex(valid ? 0x8fdab0 : 0xf05a65)
+      marker.emissive.copy(marker.color); marker.emissiveIntensity = .3
+      return
+    }
+    this.preview.rotation.y = 0
+    ;(this.preview.material as MeshStandardMaterial).emissiveIntensity = 0
     const objectsAtCell = this.currentSnapshot.buildings
       .filter((item) => occupiesBuildingCell(item,this.hoveredCell!.x,this.hoveredCell!.z))
       .sort((a, b) => b.elevation - a.elevation)
