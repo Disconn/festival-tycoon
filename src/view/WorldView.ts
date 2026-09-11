@@ -1,4 +1,5 @@
 import { updateStageBand } from './stageBand'
+import { createRetroBuilding, batchRetroBuildings } from './retroBuildings'
 import { bindTouchCamera } from './touchCamera'
 import { stageSiteIssue } from '../game/stageSite'
 import { createStageModel, animateStageModel, updateStageLightPool } from './stageModel'
@@ -996,6 +997,7 @@ export class WorldView {
       }
       this.buildings.add(model)
     })
+    this.buildings.add(batchRetroBuildings(this.buildings))
   }
 
   private createBuildingModel(
@@ -1006,6 +1008,11 @@ export class WorldView {
     surfaceColor?: number,
     wayType?: WayType,
   ): Group {
+    const detailed = createRetroBuilding(kind)
+    if (detailed) {
+      this.addSupport(detailed, elevation, .24)
+      return detailed
+    }
     const group = new Group()
     const definition = BUILDINGS[kind]
     const material = new MeshStandardMaterial({ color: surfaceColor ?? definition.color, roughness: 0.7 })

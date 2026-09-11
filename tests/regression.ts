@@ -1,5 +1,6 @@
 import { testMusicPlanning } from './musicPlanning'
 import { testMobileTouch } from './mobileTouch'
+import { testPerformanceGuards } from './performanceGuards'
 import { testStageInteraction } from './stageInteraction'
 import { testStageTickets } from './stageTickets'
 import { SupplyChainView } from '../src/view/SupplyChainView'
@@ -51,6 +52,8 @@ function fixture(count = 20): GameState {
   }
   return game
 }
+
+testPerformanceGuards(fixture)
 
 test('Base64 saves preserve Unicode and full worlds without overwriting local saves', () => {
   const original = fixture(2)
@@ -317,7 +320,8 @@ test('bulldozer removes rectangular areas with one multiplayer command', () => {
 })
 
 if (process.env.PROFILE_CROWD) {
-  const game = process.env.PROFILE_SAVE ? GameState.fromJSON(readFileSync(process.env.PROFILE_SAVE, 'utf8'))! : fixture(2000)
+  const profileCount = Number(process.env.PROFILE_COUNT ?? 2000)
+  const game = process.env.PROFILE_SAVE ? GameState.fromJSON(readFileSync(process.env.PROFILE_SAVE, 'utf8'))! : fixture(profileCount)
   const totals = new Map<string, number>()
   for (const name of ['findPath', 'reviewVisitorRoutes', 'refreshPedestrianCongestion', 'walkVisitors', 'updateCrowdingAndMotivation', 'updateAtmosphere', 'updateVisitors', 'rebuildPedestrianNav', 'getCampingCellAt', 'getPedestrianNeighbors', 'getPedestrianSurfaceCost', 'flushVisitorDecisions', 'tryVisitConcert']) {
     const original = (game as any)[name]
@@ -341,7 +345,7 @@ if (process.env.PROFILE_CROWD) {
 
 }
 
-for (const count of [500, 2000]) {
+for (const count of [500, 2000, 3000]) {
   const snapshot = fixture(count).snapshot
   for (const speed of [1, 3]) {
     const game = new GameState(snapshot)

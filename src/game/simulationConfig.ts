@@ -423,6 +423,8 @@ export const SIMULATION_CONFIG = {
     wanderMaxSteps: 14,
     exploreSearchEvery: 3,
     pathCacheLimit: 3072,
+    pathCacheLifetimeTicks: 30,
+    decisionsPerTick: 16,
   },
   atmosphere: {
     updateIntervalMinutes: 2,

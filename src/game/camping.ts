@@ -487,13 +487,18 @@ export class CampingSystem {
   } | null {
     const installations = this.context.getInstallations()
     if (installations.length === 0) return null
-    let best: {
-      route: CampingCell[]
-      target: CampingCell
-      kind: CampSetupKind
-      slot: number
-      capacity: number
-    } | null = null
+    // One occupancy pass and one multi-goal route search. Searching once per
+    // installation made a single social decision run hundreds of A* searches.
+    const occupied = new Map<string, Set<number>>()
+    for (const other of this.context.getVisitors()) {
+      if (other.state !== 'socializing' || !other.campActivityTarget) continue
+      const cell = other.campActivityTarget
+      const key = `${cell.x}:${cell.z}:${cell.elevation}`
+      const slots = occupied.get(key) ?? new Set<number>()
+      slots.add(other.campActivitySlot)
+      occupied.set(key, slots)
+    }
+    const candidates: { setup: CampInstallation; slot: number; capacity: number }[] = []
     for (const setup of installations) {
       const capacity =
         setup.kind === 'chairs'
@@ -501,38 +506,19 @@ export class CampingSystem {
           : setup.kind === 'musicBox'
             ? SIMULATION_CONFIG.camping.musicBoxCapacity
             : SIMULATION_CONFIG.camping.pavilionCapacity
-      const participants = this.context
-        .getVisitors()
-        .filter(
-          (other) =>
-            other.state === 'socializing' &&
-            other.campActivityTarget?.x === setup.cell.x &&
-            other.campActivityTarget.z === setup.cell.z,
-        )
-      if (participants.length >= capacity) continue
-      const usedSlots = new Set(participants.map((participant) => participant.campActivitySlot))
+      const usedSlots = occupied.get(`${setup.cell.x}:${setup.cell.z}:${setup.cell.elevation}`)
+      if ((usedSlots?.size ?? 0) >= capacity) continue
       let slot = 0
-      while (usedSlots.has(slot) && slot < capacity) slot += 1
-      const route = this.context.findPath(
-        {
-          x: visitor.cellX,
-          z: visitor.cellZ,
-          elevation: visitor.cellElevation,
-        },
-        [setup.cell],
-        true,
-      )
-      if (route && (!best || route.length < best.route.length)) {
-        best = {
-          route,
-          target: setup.cell,
-          kind: setup.kind,
-          slot,
-          capacity,
-        }
-      }
+      while (usedSlots?.has(slot) && slot < capacity) slot += 1
+      candidates.push({ setup, slot, capacity })
     }
-    return best
+    if (!candidates.length) return null
+    const start = { x: visitor.cellX, z: visitor.cellZ, elevation: visitor.cellElevation }
+    const route = this.context.findPath(start, candidates.map(({ setup }) => setup.cell), true)
+    if (!route) return null
+    const end = route.at(-1) ?? start
+    const match = candidates.find(({ setup }) => setup.cell.x === end.x && setup.cell.z === end.z && setup.cell.elevation === end.elevation)
+    return match ? { route, target: match.setup.cell, kind: match.setup.kind, slot: match.slot, capacity: match.capacity } : null
   }
 
   removeVisitorInstallations(visitorId: string): void {
