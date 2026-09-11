@@ -23,6 +23,9 @@ export type StaffMember = {
   medicalCell: { x: number; z: number; elevation: number } | null
   medicalSlot: number | null
   workArea?: { minX: number; maxX: number; minZ: number; maxZ: number } | null
+  workZones?: string[]
+  hiredDay?: number
+  hiredMinute?: number
   wasteFromBin?: boolean
   carryingWaste: number
 }

@@ -39,7 +39,7 @@ import {
 import type { ScenarioSettings } from './game/scenario'
 import { INVENTORY_ITEMS } from './game/inventory'
 import { STAFF_DEFINITIONS, STAFF_ROLES } from './game/staff'
-import type { StaffRole } from './game/staff'
+import type { StaffRole, StaffState } from './game/staff'
 import {
   DAY_PLAN_OFFERS,
   DAY_PLAN_OFFER_LABELS,
@@ -57,6 +57,7 @@ import type { CellPosition, PathAnchor } from './view/WorldView'
 import { isTextEntryTarget } from './uiFocus'
 import { mountMobileUI } from './mobileUI'
 import { mountAppInstall } from './appInstall'
+import { mountUpdateNotice } from './updateNotice'
 
 function requireElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
@@ -134,7 +135,12 @@ app.innerHTML = `
           <button id="open-day-plan" aria-expanded="false">📅 Tagesplan</button>
           <button id="open-complaints" aria-expanded="false">📣 Beschwerden</button>
           <button id="open-visitors" aria-expanded="false">👥 Besucher</button>
-          <button id="open-staff" aria-expanded="false">🧑‍💼 Personal</button>
+          <div class="dropdown-menu">
+            <button id="toggle-staff-menu" aria-expanded="false" aria-haspopup="true">🧑‍💼 Personal ▾</button>
+            <div id="staff-menu-panel" class="dropdown-menu-panel panel">
+              ${STAFF_ROLES.map(role => `<button data-staff-role="${role}">${STAFF_DEFINITIONS[role].icon} ${STAFF_DEFINITIONS[role].name}</button>`).join('')}
+            </div>
+          </div>
         </div>
         <div class="action-divider"></div>
         <div id="action-group-session" class="action-group" aria-label="Sitzung">
@@ -654,7 +660,7 @@ app.innerHTML = `
     <aside id="staff-panel" class="staff-panel panel" aria-label="Personalverwaltung">
       <div class="panel-header">
         <span class="panel-drag-line" aria-hidden="true"></span>
-        <h2 class="panel-header-title">Eingestelltes Personal</h2>
+        <h2 class="panel-header-title" id="staff-panel-title">Personal</h2>
         <span class="panel-drag-line" aria-hidden="true"></span>
         <button id="close-staff" class="panel-close-button" aria-label="Personal schließen">×</button>
       </div>
@@ -1230,7 +1236,7 @@ function bindGameState(nextGame: GameState): void {
     updateVisitorPanel()
     updateCoasterBuilder()
     updateEntityPanel()
-    updateStaffPanel()
+    updateStaffOverview()
     updateVisitorOverview()
     updateDayPlanPanel()
     updateComplaintsPanel()
@@ -1238,31 +1244,57 @@ function bindGameState(nextGame: GameState): void {
   })
 }
 
-function updateStaffPanel(): void {
+const STAFF_STATE_LABELS: Record<StaffState, string> = {
+  patrolling: 'Kontrollgang',
+  responding: 'Auf dem Weg zum Einsatz',
+  working: 'Arbeitet',
+  carrying: 'Transportiert',
+  stationed: 'An Sicherheitskontrolle',
+}
+
+let currentStaffRole: StaffRole = STAFF_ROLES[0]
+
+function openStaffOverview(role: StaffRole): void {
+  currentStaffRole = role
+  staffPanelFingerprint = ''
+  staffPanel.classList.add('visible')
+  updateStaffOverview(true)
+}
+
+function updateStaffOverview(force = false): void {
   if (!staffPanel.classList.contains('visible')) return
-  const fingerprint = game.snapshot.staff
-    .map(
-      (member) =>
-        `${member.id}:${member.role}:${member.state}:${member.assignedBuildingId ?? ''}`,
-    )
+  const role = currentStaffRole
+  const definition = STAFF_DEFINITIONS[role]
+  const members = game.snapshot.staff.filter((member) => member.role === role)
+  const working = members.filter((member) => member.state !== 'patrolling').length
+  const fingerprint = `${role}:${working}:` + members
+    .map((member) => `${member.id}:${member.state}:${(member.workZones ?? []).join(',')}`)
     .sort()
     .join('|')
-  if (fingerprint === staffPanelFingerprint && staffList.childElementCount > 0) return
+  if (!force && fingerprint === staffPanelFingerprint && staffList.childElementCount > 0) return
   staffPanelFingerprint = fingerprint
-  staffList.innerHTML = STAFF_ROLES.map((role) => {
-    const definition = STAFF_DEFINITIONS[role]
-    const members = game.snapshot.staff.filter((member) => member.role === role)
-    const working = members.filter((member) => member.state !== 'patrolling').length
-    return `<section>
-      <div><span>${definition.icon}</span><strong>${definition.name}</strong><b>${members.length} · ${formatMoney(members.length * definition.hourlyWage)}/h</b></div>
-      <small>${working} im Einsatz · ${formatMoney(definition.hourlyWage)}/h je Person</small>
-      <div class="staff-actions">
-        <button data-hire-staff="${role}">Einstellen · ${formatMoney(definition.hireCost)}</button>
-        <button data-fire-staff="${role}" ${members.length === 0 ? 'disabled' : ''}>Entlassen</button>
-      </div>
-      ${members.length ? `<hr class="staff-divider"><div class="staff-members">${members.map(member => `<button data-inspect-staff="${member.id}">${escapeHtml(member.name)}</button>`).join('')}</div>` : ''}
-    </section>`
+  requireElement<HTMLElement>('#staff-panel-title').textContent = `Übersicht ${definition.name}`
+  const rows = members.map((member) => {
+    const hired = member.hiredDay != null && member.hiredMinute != null
+      ? `Tag ${member.hiredDay} · ${formatTime(member.hiredMinute)}`
+      : '—'
+    const zoneCount = member.workZones?.length ?? 0
+    return `<tr data-inspect-staff="${member.id}" tabindex="0" role="button" aria-label="${escapeHtml(member.name)} öffnen">
+      <td>${escapeHtml(member.name)}</td>
+      <td>${hired}</td>
+      <td>${STAFF_STATE_LABELS[member.state]}</td>
+      <td>${zoneCount ? `${zoneCount} Bereich${zoneCount === 1 ? '' : 'e'}` : 'Kein Bereich'}</td>
+      <td><button class="staff-remove" data-fire-member="${member.id}" aria-label="${escapeHtml(member.name)} entlassen">🗑️</button></td>
+    </tr>`
   }).join('')
+  staffList.innerHTML = `
+    <div><span>${definition.icon}</span><strong>${definition.name}</strong><b>${members.length} · ${formatMoney(members.length * definition.hourlyWage)}/h</b></div>
+    <small>${working} im Einsatz · ${formatMoney(definition.hourlyWage)}/h je Person</small>
+    <div class="staff-actions">
+      <button data-hire-staff="${role}">Einstellen · ${formatMoney(definition.hireCost)}</button>
+    </div>
+    ${members.length ? `<hr class="staff-divider"><table class="staff-table"><thead><tr><th>Name</th><th>Wann eingestellt</th><th>Aktuelle Tätigkeit</th><th>Bereich zugewiesen</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : ''}
+  `
 }
 
 function updateDayPlanPanel(force = false): void {
@@ -3136,14 +3168,10 @@ document.querySelectorAll<HTMLButtonElement>('[data-speed]').forEach((button) =>
   button.addEventListener('click', () => game.setSpeed(Number(button.dataset.speed)))
 })
 
-const staffPanelToggle = requireElement<HTMLButtonElement>('#open-staff')
 const visitorOverviewToggle = requireElement<HTMLButtonElement>('#open-visitors')
 const dayPlanToggle = requireElement<HTMLButtonElement>('#open-day-plan')
 const logisticsPanelToggle = requireElement<HTMLButtonElement>('#open-logistics')
 const complaintsToggle = requireElement<HTMLButtonElement>('#open-complaints')
-staffPanelToggle.addEventListener('click', () => {
-  setPanelOpen(staffPanel, staffPanelToggle, !staffPanel.classList.contains('visible'), updateStaffPanel)
-})
 visitorOverviewToggle.addEventListener('click', () => {
   setPanelOpen(
     visitorOverviewPanel,
@@ -3207,6 +3235,11 @@ function positionDropdownPanel(button: HTMLElement, panel: HTMLElement, panelWid
   panel.style.top = `${rect.bottom + margin}px`
 }
 
+const staffMenuToggle =
+  requireElement<HTMLButtonElement>('#toggle-staff-menu')
+const staffMenuPanel =
+  requireElement<HTMLDivElement>('#staff-menu-panel')
+
 const closeSaveMenu = (): void => {
   saveMenuPanel.classList.remove('open')
   saveMenuToggle.setAttribute('aria-expanded', 'false')
@@ -3215,14 +3248,20 @@ const closeDebugMenu = (): void => {
   debugMenuPanel.classList.remove('open')
   debugMenuToggle.setAttribute('aria-expanded', 'false')
 }
+const closeStaffMenu = (): void => {
+  staffMenuPanel.classList.remove('open')
+  staffMenuToggle.setAttribute('aria-expanded', 'false')
+}
 debugMenuToggle.addEventListener('click', () => {
   closeSaveMenu()
+  closeStaffMenu()
   const open = debugMenuPanel.classList.toggle('open')
   debugMenuToggle.setAttribute('aria-expanded', String(open))
   if (open) positionDropdownPanel(debugMenuToggle, debugMenuPanel)
 })
 saveMenuToggle.addEventListener('click', () => {
   closeDebugMenu()
+  closeStaffMenu()
   const open = saveMenuPanel.classList.toggle('open')
   saveMenuToggle.setAttribute('aria-expanded', String(open))
   if (open) positionDropdownPanel(saveMenuToggle, saveMenuPanel)
@@ -3230,6 +3269,19 @@ saveMenuToggle.addEventListener('click', () => {
 saveMenuPanel.addEventListener('click', (event) => {
   if (!(event.target as HTMLElement).closest('button')) return
   closeSaveMenu()
+})
+staffMenuToggle.addEventListener('click', () => {
+  closeDebugMenu()
+  closeSaveMenu()
+  const open = staffMenuPanel.classList.toggle('open')
+  staffMenuToggle.setAttribute('aria-expanded', String(open))
+  if (open) positionDropdownPanel(staffMenuToggle, staffMenuPanel)
+})
+staffMenuPanel.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-staff-role]')
+  if (!button) return
+  closeStaffMenu()
+  openStaffOverview(button.dataset.staffRole as StaffRole)
 })
 
 // Build menu and bulldoze menu are mutually exclusive; whenever neither is
@@ -3305,6 +3357,7 @@ bulldozeSizeButtons.forEach((button) => {
 window.addEventListener('resize', () => {
   if (debugMenuPanel.classList.contains('open')) positionDropdownPanel(debugMenuToggle, debugMenuPanel)
   if (saveMenuPanel.classList.contains('open')) positionDropdownPanel(saveMenuToggle, saveMenuPanel)
+  if (staffMenuPanel.classList.contains('open')) positionDropdownPanel(staffMenuToggle, staffMenuPanel)
 })
 requireElement<HTMLButtonElement>('#debug-remove-cars').addEventListener(
   'click',
@@ -3654,20 +3707,31 @@ visitorOverviewList.addEventListener('click', (event) => {
   selectVisitor(visitorId)
 })
 requireElement<HTMLButtonElement>('#close-staff').addEventListener('click', () => {
-  setPanelOpen(staffPanel, staffPanelToggle, false)
+  staffPanel.classList.remove('visible')
 })
 staffList.addEventListener('click', (event) => {
   const target = event.target as HTMLElement
-  const inspect = target.closest<HTMLButtonElement>('[data-inspect-staff]')
-  if (inspect) staffDetails.open(inspect.dataset.inspectStaff!)
   const hire = target.closest<HTMLButtonElement>('[data-hire-staff]')
-  const fire = target.closest<HTMLButtonElement>('[data-fire-staff]')
-  const result = hire
-    ? game.hireStaff(hire.dataset.hireStaff as StaffRole)
-    : fire
-      ? game.fireStaff(fire.dataset.fireStaff as StaffRole)
-      : null
-  if (result) showToast(result.message, !result.ok)
+  if (hire) {
+    const result = game.hireStaff(hire.dataset.hireStaff as StaffRole)
+    showToast(result.message, !result.ok)
+    return
+  }
+  const fireMember = target.closest<HTMLButtonElement>('[data-fire-member]')
+  if (fireMember) {
+    const result = game.fireStaffMember(fireMember.dataset.fireMember!)
+    showToast(result.message, !result.ok)
+    return
+  }
+  const row = target.closest<HTMLElement>('[data-inspect-staff]')
+  if (row) staffDetails.open(row.dataset.inspectStaff!)
+})
+staffList.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  const row = (event.target as HTMLElement).closest<HTMLElement>('[data-inspect-staff]')
+  if (!row) return
+  event.preventDefault()
+  staffDetails.open(row.dataset.inspectStaff!)
 })
 
 securityThoroughness.addEventListener('input', () => {
@@ -4205,6 +4269,7 @@ window.addEventListener('keydown', (event) => {
 
 bindGameState(game)
 mountAppInstall()
+mountUpdateNotice()
 
 mountMobileUI({
   panMode: enabled => { view.touchPanMode = enabled },

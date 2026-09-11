@@ -83,6 +83,7 @@ import { applyGameCommand } from '../net/commands'
 import { allowsPathFlow, normalizeFlowDirection } from './pathFlow'
 import { createStaffMember, STAFF_DEFINITIONS } from './staff'
 import type { StaffMember, StaffRole } from './staff'
+import { zonesConnected, isZoneAdjacentToAny } from './staffZones'
 import { StaffSimulation } from './staffSimulation'
 import { MedicalSystem } from './medical'
 import type { MedicalCell } from './medical'
@@ -1501,11 +1502,64 @@ export class GameState {
       return { ok: false, message: 'Nicht genug Geld für diese Einstellung' }
     }
     this.state.money -= definition.hireCost
-    this.state.staff.push(
-      createStaffMember(this.nextId('staff'), role, this.getEntrance()),
+    const member = createStaffMember(this.nextId('staff'), role, this.getEntrance())
+    const usedNumbers = new Set(
+      this.state.staff
+        .filter((p) => p.role === role)
+        .map((p) => Number(/(\d+)$/.exec(p.name)?.[1]))
+        .filter((n) => Number.isInteger(n)),
     )
+    let number = 1
+    while (usedNumbers.has(number)) number += 1
+    member.name = `${definition.name} ${number}`
+    member.hiredDay = this.state.day
+    member.hiredMinute = this.state.minute
+    this.state.staff.push(member)
     this.emit()
     return { ok: true, message: `${definition.name} eingestellt` }
+  }
+
+  toggleStaffZone(staffId: string, key: string): ActionResult {
+    const member = this.state.staff.find((p) => p.id === staffId)
+    if (!member) return { ok: false, message: 'Personal nicht gefunden' }
+    const zones = member.workZones ?? []
+    const has = zones.includes(key)
+    if (has) {
+      const next = zones.filter((z) => z !== key)
+      if (!zonesConnected(next)) {
+        return { ok: false, message: 'Bereiche müssen zusammenhängend bleiben - zuerst die trennende Seite entfernen' }
+      }
+      member.workZones = next
+    } else {
+      if (zones.length && !isZoneAdjacentToAny(key, zones)) {
+        return { ok: false, message: 'Bereiche müssen zusammenhängend sein' }
+      }
+      member.workZones = [...zones, key]
+    }
+    if (member.state === 'patrolling') member.route = []
+    this.emit()
+    return { ok: true, message: has ? 'Bereich entfernt' : 'Bereich zugewiesen' }
+  }
+
+  placeStaffAt(staffId: string, x: number, z: number): ActionResult {
+    const member = this.state.staff.find((p) => p.id === staffId)
+    if (!member) return { ok: false, message: 'Personal nicht gefunden' }
+    const half = this.getWorldSize() / 2
+    if (!Number.isInteger(x) || !Number.isInteger(z) || x < -half || x >= half || z < -half || z >= half) {
+      return { ok: false, message: 'Ziel liegt außerhalb der Karte' }
+    }
+    if (this.isWaterTerrain(x, z)) return { ok: false, message: 'Dort ist Wasser' }
+    const elevation = this.getTerrainHeight(x, z)
+    member.cellX = x
+    member.cellZ = z
+    member.cellElevation = elevation
+    member.x = x + 0.5
+    member.y = elevation
+    member.z = z + 0.5
+    member.route = []
+    member.targetId = null
+    this.emit()
+    return { ok: true, message: `${member.name} platziert` }
   }
 
   fireStaff(role: StaffRole): ActionResult {
@@ -1528,6 +1582,21 @@ export class GameState {
     }
     this.emit()
     return { ok: true, message: `${STAFF_DEFINITIONS[role].name} entlassen` }
+  }
+
+  fireStaffMember(staffId: string): ActionResult {
+    const index = this.state.staff.findIndex((p) => p.id === staffId)
+    if (index < 0) return { ok: false, message: 'Personal nicht gefunden' }
+    const member = this.state.staff[index]!
+    if (member.state === 'carrying' || (member.carryingWaste ?? 0) > 0) {
+      return { ok: false, message: 'Person trägt noch Fracht und kann gerade nicht entlassen werden' }
+    }
+    const [removed] = this.state.staff.splice(index, 1)
+    if (removed?.medicalCell && removed.targetId) {
+      this.medical.releaseBed(this.state.medicalCells, removed.targetId)
+    }
+    this.emit()
+    return { ok: true, message: `${removed!.name} entlassen` }
   }
 
   designateMedicalArea(

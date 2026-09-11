@@ -75,6 +75,7 @@ import {
   disposeObject3D,
 } from './disposeObject3D'
 import { LogisticsView } from './LogisticsView'
+import { zoneCellRange } from '../game/staffZones'
 import { WasteView } from './WasteView'
 import { PowerView } from './PowerView'
 import { LaserView } from './LaserView'
@@ -279,6 +280,11 @@ export class WorldView {
   private minimapViewHeight = 7
   private workAreaOverlay: InstancedMesh | null = null
   private workAreaStamp = ''
+  private workZonesOverlay: InstancedMesh | null = null
+  private workZonesStamp = ''
+  private staffPlacementHandler: ((cell: CellPosition) => void) | null = null
+  private staffPlacementPreview: Mesh | null = null
+  private staffPlacementColor = 0x5ad4e5
   private onVisitorClick: VisitorHandler
   private onCellPaint: CellHandler
   private onElevationChange: ElevationHandler
@@ -663,6 +669,50 @@ export class WorldView {
     let index=0
     for(let z=area.minZ;z<=area.maxZ;z++) for(let x=area.minX;x<=area.maxX;x++) {pose.position.set(x+.5,getTerrainHeight(this.currentSnapshot.terrain,x,z)+.17,z+.5);pose.updateMatrix();mesh.setMatrixAt(index++,pose.matrix)}
     mesh.frustumCulled=false;this.scene.add(mesh);this.workAreaOverlay=mesh
+  }
+
+  showStaffZones(zones: string[] | null): void {
+    const stamp = JSON.stringify(zones)
+    if(stamp===this.workZonesStamp) return
+    this.workZonesStamp=stamp
+    if(this.workZonesOverlay) {this.scene.remove(this.workZonesOverlay);this.workZonesOverlay.geometry.dispose();(this.workZonesOverlay.material as MeshBasicMaterial).dispose();this.workZonesOverlay.dispose();this.workZonesOverlay=null}
+    if(!zones?.length || !this.currentSnapshot) return
+    const half=this.worldSize/2
+    const cells:Array<{x:number;z:number}>=[]
+    for(const key of zones) {
+      const area=zoneCellRange(key)
+      for(let z=Math.max(-half,area.minZ);z<=Math.min(half-1,area.maxZ);z++) for(let x=Math.max(-half,area.minX);x<=Math.min(half-1,area.maxX);x++) cells.push({x,z})
+    }
+    if(!cells.length) return
+    const mesh=new InstancedMesh(new PlaneGeometry(.94,.94),new MeshBasicMaterial({color:0x5ad4e5,transparent:true,opacity:.25,depthWrite:false}),cells.length)
+    const pose=new Object3D();pose.rotation.x=-Math.PI/2
+    cells.forEach((cell,index)=>{pose.position.set(cell.x+.5,getTerrainHeight(this.currentSnapshot!.terrain,cell.x,cell.z)+.17,cell.z+.5);pose.updateMatrix();mesh.setMatrixAt(index,pose.matrix)})
+    mesh.frustumCulled=false;this.scene.add(mesh);this.workZonesOverlay=mesh
+  }
+
+  setStaffPlacementTool(handler: ((cell: CellPosition) => void) | null, color = 0x5ad4e5): void {
+    this.staffPlacementHandler = handler
+    this.staffPlacementColor = color
+    if (!handler) this.updateStaffPlacementPreview(null)
+  }
+
+  private updateStaffPlacementPreview(cell: CellPosition | null): void {
+    if (!cell || !this.currentSnapshot) {
+      if (this.staffPlacementPreview) this.staffPlacementPreview.visible = false
+      return
+    }
+    if (!this.staffPlacementPreview) {
+      const mesh = new Mesh(
+        new BoxGeometry(0.8, 0.2, 0.8),
+        new MeshBasicMaterial({ color: this.staffPlacementColor, transparent: true, opacity: 0.55, depthWrite: false }),
+      )
+      this.scene.add(mesh)
+      this.staffPlacementPreview = mesh
+    }
+    const mesh = this.staffPlacementPreview
+    ;(mesh.material as MeshBasicMaterial).color.set(this.staffPlacementColor)
+    mesh.visible = true
+    mesh.position.set(cell.x + 0.5, getTerrainHeight(this.currentSnapshot.terrain, cell.x, cell.z) + 0.4, cell.z + 0.5)
   }
 
   setStaffClickHandler(handler: VisitorHandler): void { this.onStaffClick = handler }
@@ -2395,6 +2445,11 @@ export class WorldView {
         return
       }
       const moved = this.pointerDown.distanceTo(new Vector2(event.clientX, event.clientY))
+      if (event.button === 0 && moved < 5 && this.staffPlacementHandler && this.hoveredCell) {
+        this.staffPlacementHandler(this.hoveredCell)
+        this.leftPointerDown = false; this.pointerDownCell = null
+        return
+      }
       if (event.button === 0 && moved < 5 && !this.painting && !(event.pointerType === 'touch' && this.touchPanMode)) {
         this.setRayFromPointer(event)
         const staffHit = this.raycaster.intersectObjects([...(this.staffView.group.visible?this.staffView.group.children:[]),...this.supplyChainView.getStaffMeshes()],true)[0]
@@ -2532,6 +2587,7 @@ export class WorldView {
       this.hoveredCell = null
       this.onCellHover(this.hoveredCell)
       this.updatePreview()
+      if (this.staffPlacementHandler) this.updateStaffPlacementPreview(null)
       return
     }
     const x = Math.floor(point.x)
@@ -2540,6 +2596,7 @@ export class WorldView {
     this.hoveredCell = x >= -half && x < half && z >= -half && z < half ? { x, z } : null
     this.onCellHover(this.hoveredCell)
     this.updatePreview()
+    if (this.staffPlacementHandler) this.updateStaffPlacementPreview(this.hoveredCell)
   }
 
   private pickVisitor(event: PointerEvent): string | null {

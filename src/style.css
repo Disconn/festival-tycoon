@@ -1371,8 +1371,9 @@ button {
 .staff-panel {
   position: absolute;
   top: 88px;
-  right: 18px;
-  width: min(370px, calc(100vw - 36px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(620px, calc(100vw - 36px));
   max-height: calc(100vh - 120px);
   padding: 14px;
   overflow: auto;
@@ -1809,26 +1810,17 @@ button {
 }
 
 .staff-list {
-  display: grid;
-  gap: 10px;
   margin-top: 12px;
 }
 
-.staff-list section {
-  padding: 10px;
-  border: 1px solid rgba(214, 229, 211, 0.14);
-  border-radius: 8px;
-  background: rgba(17, 35, 28, 0.7);
-}
-
-.staff-list section > div:first-child,
+.staff-list > div:first-child,
 .staff-actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.staff-list section > div:first-child strong {
+.staff-list > div:first-child strong {
   flex: 1;
 }
 
@@ -1848,14 +1840,46 @@ button {
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-.staff-members {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.staff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
 }
 
-.staff-members button {
-  flex: 0 1 calc(50% - 4px);
+.staff-table th {
+  text-align: left;
+  padding: 6px 8px;
+  color: var(--muted);
+  font-weight: 400;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.staff-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  vertical-align: middle;
+}
+
+.staff-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.staff-table tbody tr[data-inspect-staff] {
+  cursor: pointer;
+}
+
+.staff-table tbody tr[data-inspect-staff]:hover,
+.staff-table tbody tr[data-inspect-staff]:focus-visible {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.staff-table .staff-remove {
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.staff-table .staff-remove:hover {
+  background: rgba(198, 74, 63, 0.35);
 }
 
 .security-items {
@@ -2360,12 +2384,12 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 
 /* Reserve the right side for inspection; overlays move beside it on wide screens. */
 .visitor-panel { top: 100px; right: 6px; max-height: calc(100dvh - 158px); overflow-y: auto; z-index: 22; }
-.staff-panel { top: 100px; right: 6px; max-height: calc(100dvh - 158px); }
-.game-shell:has(.visitor-panel.visible, .staff-panel.visible, #entity-panel:not([hidden])) .crowding-panel { right: 388px; }
+.staff-panel { max-height: calc(100dvh - 158px); }
+.game-shell:has(.visitor-panel.visible, #entity-panel:not([hidden])) .crowding-panel { right: 388px; }
 .game-shell:has(.day-plan-panel.visible, .visitor-overview-panel.visible, .complaints-panel.visible) .crowding-panel { display: none; }
 .day-plan-panel, .visitor-overview-panel, .complaints-panel { top: 100px; max-height: calc(100dvh - 116px); overflow-y: auto; }
 @media (max-width: 1100px) {
-  .game-shell:has(.visitor-panel.visible, .staff-panel.visible, #entity-panel:not([hidden])) .crowding-panel { display: none; }
+  .game-shell:has(.visitor-panel.visible, #entity-panel:not([hidden])) .crowding-panel { display: none; }
 }
 @media (max-width: 780px) {
   .topbar { gap: 5px; }
@@ -2376,7 +2400,8 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   .build-categories { max-height: max(60px, calc(100dvh - 575px)); }
   .crowding-panel { top: 125px; width: 144px; }
   .build-flyout { width: min(210px, calc(100vw - 186px)); }
-  .visitor-panel, .staff-panel, .day-plan-panel, .visitor-overview-panel, .complaints-panel, .entity-panel { top: 125px; max-height: calc(100dvh - 181px); }
+  .visitor-panel, .day-plan-panel, .visitor-overview-panel, .complaints-panel, .entity-panel { top: 125px; max-height: calc(100dvh - 181px); }
+  .staff-panel { max-height: calc(100dvh - 181px); }
 }
 
 /* Keep the expanded scenario form inside the viewport. */
@@ -2426,6 +2451,35 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   pointer-events: none;
 }
 
+.update-notice {
+  position: fixed;
+  bottom: 48px;
+  left: 6px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  max-width: min(320px, calc(100vw - 12px));
+  font-size: 12px;
+}
+
+.update-notice[hidden] {
+  display: none;
+}
+
+.update-notice button {
+  flex-shrink: 0;
+  color: #ecf5f0;
+  background: rgba(255, 255, 255, 0.07);
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.update-notice button:hover {
+  background: #3f715b;
+}
+
 .save-text-dialog { width: min(600px, 85vw); color: #dedcc6; background: #263c2e; border: 2px solid #a89b61; border-radius: 5px; }
 .save-text-dialog::backdrop { background: #0009; }
 .save-text-dialog textarea { box-sizing: border-box; width: 100%; height: 180px; resize: vertical; font: 11px monospace; }
@@ -2448,10 +2502,12 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .staff-minimap canvas { display: block; width: 100%; height: 100%; }
 .staff-minimap-controls { display: flex; flex-direction: column; gap: 4px; }
 .staff-minimap-controls button { flex: 1; width: 30px; margin: 0; padding: 0; font-size: 15px; line-height: 1; }
+.staff-minimap-controls button[aria-pressed='true'] { background: #3f715b; }
 .staff-details p { font-size: 12px; }
 .staff-details button { margin:3px; }
 
 .staff-details > button { display: block; width: 100%; margin: 6px 0 0; }
+.staff-details > button[hidden] { display: none; }
 body:has(.staff-details:not([hidden])) .supply-planner,
 body:has(.staff-details:not([hidden])) .crowding-panel { visibility: hidden; }
 .app-install-dialog { width: min(460px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 18px; line-height: 1.55; }
