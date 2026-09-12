@@ -68,7 +68,7 @@ export function mountStageEditor(getGame:()=>GameState,toast:(s:string,error?:bo
   function init(){
     renderer=new WebGLRenderer({antialias:false});renderer.setPixelRatio(.7);renderer.setClearColor(0x121b2b);viewport.append(renderer.domElement)
     scene=new Scene();scene.background=new Color('#121b2b');camera=new PerspectiveCamera(42,1,.1,300);camera.position.set(11,10,13)
-    controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,1,0);controls.minDistance=5;controls.maxDistance=140;controls.maxPolarAngle=Math.PI*.48;controls.enableDamping=true;controls.mouseButtons.RIGHT=null
+    controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,1,0);controls.minDistance=5;controls.maxDistance=140;controls.maxPolarAngle=Math.PI*.97;controls.enableDamping=true;controls.mouseButtons.RIGHT=null
     scene.add(new AmbientLight(0xffffff,1));const sun=new DirectionalLight(0xffeddb,1.8);sun.position.set(4,10,8);scene.add(sun);const grid=new GridHelper(40,40,0x718197,0x344456);grid.position.y=-.01;scene.add(grid)
     let down={x:0,y:0}
     const touchIds=new Set<number>();let cameraGesture=false
@@ -144,7 +144,8 @@ export function mountStageEditor(getGame:()=>GameState,toast:(s:string,error?:bo
   }
   function animate(now:number){if(panel.hidden)return;const dt=Math.min(.1,(now-last)/1000);last=now;if(preview)elapsed+=dt
     const w=viewport.clientWidth,h=viewport.clientHeight;if(renderer!.domElement.clientWidth!==w||renderer!.domElement.clientHeight!==h||renderer!.domElement.width!==Math.floor(w*.7)){renderer!.setSize(w,h);camera.aspect=w/Math.max(1,h);camera.updateProjectionMatrix()}
-    controls!.update();if(model){animateStageModel(model,design.phases[phaseIndex()],elapsed,true);updateStageBand(model,'meadow',elapsed,(q('[data-band-preview]') as HTMLInputElement).checked,design);}if(ghost)animateStageModel(ghost,design.phases[phaseIndex()],elapsed,true);if(pickTargets){animateStageModel(pickTargets,design.phases[phaseIndex()],elapsed,true);pickTargets.updateMatrixWorld(true);}renderer!.render(scene,camera);frame=requestAnimationFrame(animate)
+    controls!.update();if(model){animateStageModel(model,design.phases[phaseIndex()],elapsed,true);updateStageBand(model,'meadow',elapsed,(q('[data-band-preview]') as HTMLInputElement).checked,design)
+      const belowGround=camera.position.y<0;for(const m of (model.userData.floorMeshes as Mesh[]|undefined)??[])m.visible=!belowGround}if(ghost)animateStageModel(ghost,design.phases[phaseIndex()],elapsed,true);if(pickTargets){animateStageModel(pickTargets,design.phases[phaseIndex()],elapsed,true);pickTargets.updateMatrixWorld(true);}renderer!.render(scene,camera);frame=requestAnimationFrame(animate)
   }
   function syncOpenButton(){document.getElementById('open-stage-editor')?.setAttribute('aria-expanded',String(!panel.hidden))}
   function close(){panel.hidden=true;cancelAnimationFrame(frame);pointer=null;clearGhost();syncOpenButton()}

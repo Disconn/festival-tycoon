@@ -1,6 +1,6 @@
 import { Group, Mesh, BoxGeometry, ConeGeometry, SphereGeometry, BufferGeometry, Float32BufferAttribute, LineSegments, LineBasicMaterial, SpotLight, Vector3, Quaternion, DoubleSide, MeshStandardMaterial, MeshBasicMaterial, AdditiveBlending } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { isTruss, stageMotion, mountDirection, NEIGHBOR_STEPS, type StageDesign, type ShowPhase } from '../game/stageDesign'
+import { isTruss, stageMotion, mountDirection, type StageDesign, type ShowPhase } from '../game/stageDesign'
 
 const unitX=new Vector3(1,0,0)
 /** For a truss's long axis, the two perpendicular unit vectors used to arrange its 3 chords. */
@@ -10,6 +10,10 @@ const CROSS_AXES = {
   z: [{x:1,y:0,z:0},{x:0,y:1,z:0}],
 } as const
 const ALONG_AXES = {x:{x:1,y:0,z:0},y:{x:0,y:1,z:0},z:{x:0,y:0,z:1}} as const
+/** Colors used only by the floor slab/tiles, so its batched meshes can be found and hidden separately (e.g. when viewing from below). */
+const FLOOR_COLORS = new Set(['#75886a','#30394c','#485166','#515b70'])
+/** Half the height of each fixture's own body (matches its first box() call below), used to press it flush against a truss it is docked onto. */
+const EQUIPMENT_REACH:Partial<Record<string,number>> = {speaker:.4,spot:.15,laser:.15,fireworks:.15,sparks:.15,fog:.15,screen:.6,banner:.6,star:.4}
 export function createStageModel(d:StageDesign,options:{floor?:boolean;partIds?:Set<string>;effects?:boolean;lightBudget?:number}={}):Group {
   const root=new Group(), buckets=new Map<string,BufferGeometry[]>(), effects:Group[]=[]
   let origin: {x:number;z:number;rotation:number}|undefined
@@ -83,8 +87,13 @@ export function createStageModel(d:StageDesign,options:{floor?:boolean;partIds?:
       const axis=p.axis??'y',along=ALONG_AXES[axis],[ca,cb]=CROSS_AXES[axis]
       const pt=(t:number,a:number,b:number)=>({x:x+along.x*t+ca.x*a+cb.x*b,y:y+along.y*t+ca.y*a+cb.y*b,z:z+along.z*t+ca.z*a+cb.z*b})
       const chordColor='#b6c5cf',braceColor='#8a9aab',r=.13,half=.47
+      // Chords reach all the way to a linked neighbour's own centre (t=+-1) so the two segments'
+      // tubes physically overlap at the joint instead of leaving a gap that needs a filler block.
+      const negLinked=d.parts.some(t=>isTruss(t.kind)&&t.x===p.x-along.x&&t.y===p.y-along.y&&t.z===p.z-along.z)
+      const posLinked=d.parts.some(t=>isTruss(t.kind)&&t.x===p.x+along.x&&t.y===p.y+along.y&&t.z===p.z+along.z)
+      const negT=negLinked?-1:-half,posT=posLinked?1:half
       const corners=[{a:0,b:r},{a:-r*.87,b:-r*.5},{a:r*.87,b:-r*.5}]
-      for(const corner of corners){const p1=pt(-half,corner.a,corner.b),p2=pt(half,corner.a,corner.b);strut(p1.x,p1.y,p1.z,p2.x,p2.y,p2.z,.045,chordColor)}
+      for(const corner of corners){const p1=pt(negT,corner.a,corner.b),p2=pt(posT,corner.a,corner.b);strut(p1.x,p1.y,p1.z,p2.x,p2.y,p2.z,.045,chordColor)}
       const braces=3
       for(let i=0;i<braces;i++){
         const t0=-half+(i/braces)*(half*2),t1=-half+((i+1)/braces)*(half*2)
@@ -92,32 +101,42 @@ export function createStageModel(d:StageDesign,options:{floor?:boolean;partIds?:
         const p1=pt(t0,c0.a,c0.b),p2=pt(t1,c1.a,c1.b)
         strut(p1.x,p1.y,p1.z,p2.x,p2.y,p2.z,.035,braceColor)
       }
-      for(const step of NEIGHBOR_STEPS){
-        const neighbor=d.parts.some(t=>isTruss(t.kind)&&t.x===p.x+step.x&&t.y===p.y+step.y&&t.z===p.z+step.z)
-        if(neighbor)box(x+step.x*.5,y+step.y*.5,z+step.z*.5,.26,.26,.26,braceColor)
-      }
     }else{
-      origin={x,z,rotation:p.rotation}
       const dir=mountDirection(p,host)
+      // Every fixture below is built with its own base at (ex,ey,ez) and grows outward from
+      // there (matching how each box() call above uses only positive offsets). Docked onto a
+      // truss, that base is pulled out of the middle of the fixture's own cell and pressed up
+      // against the truss's thin body instead, so there is no floating gap between them.
+      const reach=(EQUIPMENT_REACH[p.kind]??.3)+.13
+      let ex=x,ey=y,ez=z
+      if(host){
+        const hc={x:host.x-d.width/2+.5,y:host.y+.5,z:host.z-d.depth/2+.5}
+        if(dir.x)ex=hc.x+dir.x*reach
+        if(dir.z)ez=hc.z+dir.z*reach
+        if(dir.y)ey=hc.y+dir.y*reach-(EQUIPMENT_REACH[p.kind]??.3)
+      }
+      origin={x:ex,z:ez,rotation:p.rotation}
       if(p.kind==='speaker'){
-        box(x,y+.4,z,.65,.8,.5,'#171d28');for(const yy of [.2,.55]){box(x,y+yy,z+.26,.43,.25,.04,'#414859');box(x,y+yy,z+.29,.18,.12,.02,c)}
+        box(ex,ey+.4,ez,.65,.8,.5,'#171d28');for(const yy of [.2,.55]){box(ex,ey+yy,ez+.26,.43,.25,.04,'#414859');box(ex,ey+yy,ez+.29,.18,.12,.02,c)}
       }else if(p.kind==='spot'||p.kind==='laser'){
-        box(x,y+.15,z,.45,.3,.42,'#17202d');box(x,y+.33,z,.27,.08,.3,c);effect(p.kind,x,y+.38,z,c,dir)
+        box(ex,ey+.15,ez,.45,.3,.42,'#17202d');box(ex,ey+.33,ez,.27,.08,.3,c);effect(p.kind,ex,ey+.38,ez,c,dir)
       }else if(p.kind==='fireworks'||p.kind==='sparks'){
-        box(x,y+.15,z,.65,.3,.65,'#303847');for(const dx of [-.18,.18])box(x+dx,y+.38,z,.13,.25,.13,c);effect(p.kind,x,y+.5,z,c,{x:0,y:1,z:0})
+        box(ex,ey+.15,ez,.65,.3,.65,'#303847');for(const dx of [-.18,.18])box(ex+dx,ey+.38,ez,.13,.25,.13,c);effect(p.kind,ex,ey+.5,ez,c,{x:0,y:1,z:0})
       }else if(p.kind==='fog'){
-        box(x,y+.15,z,.6,.3,.4,'#727789');box(x,y+.18,z+.24,.2,.12,.1,c);effect('fog',x,y+.1,z,'#b9cbd6',{x:0,y:1,z:0})
+        box(ex,ey+.15,ez,.6,.3,.4,'#727789');box(ex,ey+.18,ez+.24,.2,.12,.1,c);effect('fog',ex,ey+.1,ez,'#b9cbd6',{x:0,y:1,z:0})
       }else if(p.kind==='screen'||p.kind==='banner'){
-        box(x,y+.6,z,.9,1.2,.1,'#141c29');for(let a=0;a<5;a++)for(let b=0;b<6;b++)box(x+(a-2)*.16,y+.15+b*.17,z+.07,.14,.14,.03,(a+b)%3?c:'#f3dfb0')
+        box(ex,ey+.6,ez,.9,1.2,.1,'#141c29');for(let a=0;a<5;a++)for(let b=0;b<6;b++)box(ex+(a-2)*.16,ey+.15+b*.17,ez+.07,.14,.14,.03,(a+b)%3?c:'#f3dfb0')
       }else if(p.kind==='star'){
-        box(x,y+.4,z,.75,.22,.18,c);box(x,y+.4,z,.22,.8,.18,c);box(x,y+.4,z,.44,.44,.2,'#ffdd87')
+        box(ex,ey+.4,ez,.75,.22,.18,c);box(ex,ey+.4,ez,.22,.8,.18,c);box(ex,ey+.4,ez,.44,.44,.2,'#ffdd87')
       }else if(p.kind==='palm'){
-        box(x,y+.6,z,.15,1.2,.15,'#9c7353');box(x,y+1.2,z,1,.15,.3,c);box(x,y+1.3,z,.3,.15,1,c)
-      }else box(x,y+.12,z,.92,.24,.92,c)
+        box(ex,ey+.6,ez,.15,1.2,.15,'#9c7353');box(ex,ey+1.2,ez,1,.15,.3,c);box(ex,ey+1.3,ez,.3,.15,1,c)
+      }else box(ex,ey+.12,ez,.92,.24,.92,c)
     }
   }
-  for(const [color,geometries] of buckets){const merged=mergeGeometries(geometries);geometries.forEach(g=>g.dispose());if(merged){const mesh=new Mesh(merged,new MeshStandardMaterial({color,roughness:.85,flatShading:true}));mesh.receiveShadow=true;root.add(mesh)}}
+  const floorMeshes:Mesh[]=[]
+  for(const [color,geometries] of buckets){const merged=mergeGeometries(geometries);geometries.forEach(g=>g.dispose());if(merged){const mesh=new Mesh(merged,new MeshStandardMaterial({color,roughness:.85,flatShading:true}));mesh.receiveShadow=true;root.add(mesh);if(FLOOR_COLORS.has(color))floorMeshes.push(mesh)}}
   root.userData.effects=effects
+  root.userData.floorMeshes=floorMeshes
   return root
 }
 const up=new Vector3(0,1,0)
