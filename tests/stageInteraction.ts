@@ -23,7 +23,7 @@ export function testStageInteraction(fixture:(count?:number)=>GameState){
   assert.ok(bandRoles('brass').includes('brass'));assert.ok(bandRoles('campfire').includes('guitar'))
   const occupied=defaultStageDesign();occupied.tileWidth=2;occupied.tileDepth=2;occupied.audience=[{x:0,z:1}];occupied.parts=[{id:'motor',kind:'motorTruss',x:5,z:4,rotation:0,mount:null,brand:'budget',color:'#ffffff'}]
   for(const pos of bandPositions(occupied)){const x=pos.x+occupied.width/2-.5,z=pos.z+occupied.depth/2-.5;assert.ok(!(x<4&&z>=3));assert.ok(!(z===4&&Math.abs(x-5)<=1))}
-  occupied.parts=[];for(let x=0;x<8;x++)for(let z=0;z<6;z++)occupied.parts.push({id:`${x}-${z}`,kind:'speaker',x,z,rotation:0,mount:null,brand:'budget',color:'#ffffff'})
+  occupied.parts=[];for(let x=0;x<occupied.width;x++)for(let z=0;z<occupied.depth;z++)occupied.parts.push({id:`${x}-${z}`,kind:'speaker',x,z,rotation:0,mount:null,brand:'budget',color:'#ffffff'})
   assert.equal(bandPositions(occupied).length,0);disposeStageModel(performanceStage)
   const d=defaultStageDesign(),settings={kind:'speaker' as const,brand:'touring' as const,rotation:0,color:'#ff88cc'}
   let first=stagePlacement(d,settings,{x:1,z:1});first.id='box1';d.parts.push(first)
@@ -42,11 +42,11 @@ export function testStageInteraction(fixture:(count?:number)=>GameState){
   assert.equal(spots.length,2)
   for(const spot of spots){const direction=new Vector3(0,1,0).applyQuaternion(spot.quaternion);assert.equal(direction.y<0,spot.userData.hanging,'hanging spots point down, floor spots point up');assert.ok(spot.userData.light instanceof SpotLight);assert.ok(spot.userData.light.intensity>0)}
   const laser=model.userData.effects.find((p:any)=>p.userData.kind==='laser');assert.ok(laser.children[0] instanceof LineSegments)
-  const fog=model.userData.effects.find((p:any)=>p.userData.kind==='fog');assert.equal(fog.children.length,3);assert.ok(fog.children[0].scale.x>3)
+  const fog=model.userData.effects.find((p:any)=>p.userData.kind==='fog');assert.equal(fog.children.length,3);assert.ok(fog.children[0].scale.x>rig.width*.4)
   animateStageModel(model,phase,1,false);assert.ok(spots.every((p:any)=>p.userData.light.intensity===0));disposeStageModel(model)
   const kinetic=defaultStageDesign();kinetic.parts=[{id:'lift',kind:'motorTruss',brand:'touring',x:3,z:2,rotation:0,mount:null,color:'#ffffff'}]
   const movingSpot=stagePlacement(kinetic,{...settings,kind:'spot'},{x:3,z:2},'lift');movingSpot.id='moving';kinetic.parts.push(movingSpot)
-  kinetic.parts.push({...settings,id:'pyro',kind:'fireworks',x:1,z:4,mount:null},{...settings,id:'spark',kind:'sparks',x:6,z:4,mount:null})
+  kinetic.parts.push({...settings,id:'pyro',kind:'fireworks',x:1,z:4,mount:null},{...settings,id:'spark',kind:'sparks',x:5,z:4,mount:null})
   assert.equal(stageDesignIssue(kinetic),null);assert.equal(movingSpot.mount,'lift')
   assert.ok(stageDesignIssue({...kinetic,phases:kinetic.phases.map(p=>({...p,movement:101})) as typeof kinetic.phases}))
   assert.ok(stageDesignIssue({...kinetic,parts:[...kinetic.parts,{...settings,id:'obstruction',x:2,z:2,mount:null}]}))
@@ -62,7 +62,7 @@ export function testStageInteraction(fixture:(count?:number)=>GameState){
   animateStageModel(kineticModel,show,2,false);assert.ok(kineticModel.userData.effects.every((e:any)=>!e.visible));assert.equal(kineticModel.userData.moving[0].position.y,0)
   assert.equal(removeStagePart(kinetic,'lift').parts.some(p=>p.id==='moving'),false)
   assert.equal(stageDesignIssue(JSON.parse(JSON.stringify(kinetic))),null);disposeStageModel(kineticModel)
-  const audience=defaultStageDesign();audience.tileWidth=3;audience.tileDepth=3;audience.audience=[{x:0,z:1},{x:1,z:1}]
+  const audience=defaultStageDesign();audience.tileWidth=3;audience.tileDepth=3;audience.width=9;audience.depth=9;audience.audience=[{x:0,z:1},{x:1,z:1}]
   assert.equal(stageDesignIssue(audience),null)
   assert.ok(stageDesignIssue({...audience,audience:[{x:1,z:1}]}),'sealed audience courtyards need an entrance')
   assert.ok(stageDesignIssue({...audience,parts:[{...settings,id:'blocked',x:3,z:3,mount:null}]}),'floor equipment cannot obstruct spectator tiles')

@@ -42,11 +42,11 @@ export function testStageTickets(fixture:(count?:number)=>GameState){
   assert.equal(build.designateCampingCell(7,-19).ok,false)
   assert.equal(build.manageFestival({type:'depot',x:7,z:-19,role:'storage'}).ok,false)
   assert.equal((build as any).isPedestrianSolidAt(7,-19,0),true)
-  const expanded=structuredClone(design);expanded.tileWidth=3
+  const expanded=structuredClone(design);expanded.tileWidth=3;expanded.width=9
   const unchanged=bs.money
   assert.equal(build.manageFestival({type:'stageDesign',stageId:stage.id,design:expanded}).ok,false,'expansion needs a prepared foundation on every new cell')
   assert.equal(bs.money,unchanged);assert.deepEqual(stage.stageDesign,design)
-  const rotated=structuredClone(design);rotated.tileWidth=3;rotated.tileDepth=1
+  const rotated=structuredClone(design);rotated.tileWidth=3;rotated.tileDepth=1;rotated.width=9;rotated.depth=3;rotated.parts.find(p=>p.id==='sound')!.z=2
   for(let x=6;x<9;x++)for(let z=-20;z<-17;z++){build.manageFestival({type:'ground',x,z,kind:'drain'});build.manageFestival({type:'ground',x,z,kind:'compact'})}
   stage.rotation=1
   assert.ok(build.manageFestival({type:'stageDesign',stageId:stage.id,design:rotated}).ok)
@@ -58,7 +58,7 @@ export function testStageTickets(fixture:(count?:number)=>GameState){
   const demolished=GameState.fromJSON(JSON.stringify(bs))!
   assert.ok(demolished.bulldoze(7,-19).ok,'secondary cells can demolish the entire stage')
   assert.equal(demolished.getAt(6,-20),undefined)
-  const edgeDesign={...design,tileWidth:8,tileDepth:8}
+  const edgeDesign={...design,tileWidth:8,tileDepth:8,width:24,depth:24}
   assert.ok(build.manageFestival({type:'stageDesign',design:edgeDesign,selectForBuild:true}).ok)
   assert.equal(build.canPlace('stage',bs.scenario.worldSize/2-1,0).ok,false)
   assert.ok(build.manageFestival({type:'stageDesign',design,selectForBuild:true}).ok)

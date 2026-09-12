@@ -14,8 +14,13 @@
 .stage-editor input[type=color]{height:28px}
 .stage-editor p{line-height:1.5;font-size:12px}
 .stage-editor output{float:right}
-.stage-pair,.stage-parts{display:grid;grid-template-columns:1fr 1fr;gap:5px}
-.stage-parts button{text-align:left;padding:7px 5px;font-size:11px}
+.stage-pair{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.stage-parts{display:grid;grid-template-columns:1fr;gap:5px}
+.stage-divider{margin:9px 0;border:none;border-top:1px solid rgba(255,255,255,.14)}
+.stage-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin:9px 0}
+.stage-actions button{padding:7px 4px;font-size:11px}
+.stage-parts button{display:flex;align-items:center;gap:8px;text-align:left;padding:6px 8px;font-size:11px}
+.stage-part-icon{width:34px;height:34px;flex:none;object-fit:contain}
 .stage-phases{display:flex;gap:3px}
 .stage-phases button{padding:6px;font-size:11px}
 .stage-center{display:flex;flex-direction:column;min-height:0;min-width:0;background:#172333;color:#e7eadc}

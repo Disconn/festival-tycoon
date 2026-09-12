@@ -23,8 +23,13 @@ export type StagePart = {stackOn?:string|null;id:string;kind:ComponentKind;brand
 export type ShowPhase = {movement?:number;pyro?:number;intensity:number;speed:number;fog:number;volume:number;color:string}
 export type StageDesign = {audience?:Array<{x:number;z:number}>;tileWidth?:number;tileDepth?:number;name:string;width:number;depth:number;parts:StagePart[];linked:boolean;phases:[ShowPhase,ShowPhase,ShowPhase]}
 export const PHASE_NAMES = ['Warm-up','Main','Finale'] as const
+export const STAGE_TILE_DETAIL = 3
+export function stageDetailSize(tileWidth?:number,tileDepth?:number) {
+  return {width:(tileWidth??1)*STAGE_TILE_DETAIL,depth:(tileDepth??1)*STAGE_TILE_DETAIL}
+}
 export function defaultStageDesign():StageDesign {
-  return {tileWidth:2,tileDepth:2,name:'Meine Traumbühne',width:8,depth:6,linked:false,parts:[],phases:[
+  const tileWidth=2,tileDepth=2
+  return {tileWidth,tileDepth,name:'Meine Traumbühne',...stageDetailSize(tileWidth,tileDepth),linked:false,parts:[],phases:[
     {movement:20,pyro:0,intensity:40,speed:25,fog:15,volume:50,color:'#ffc369'},
     {movement:55,pyro:35,intensity:75,speed:55,fog:40,volume:80,color:'#7f8cff'},
     {movement:100,pyro:100,intensity:100,speed:85,fog:65,volume:100,color:'#ef66cd'}]}
@@ -35,8 +40,10 @@ export function stageStats(d:StageDesign) {
   return {cost:Math.round(cost),upkeep:Math.round(cost*.008*10)/10,party:Math.min(100,Math.round(party)),beauty:Math.min(100,Math.round(beauty)),power:Math.round(power*10)/10,speakers}
 }
 export function stageDesignIssue(d:StageDesign):string|null {
-  if(!d || typeof d.name!=='string'||d.name.length>60||typeof d.linked!=='boolean'||![d.width,d.depth].every(n=>Number.isInteger(n)&&n>=4&&n<=12)||!Array.isArray(d.parts)||d.parts.length>96) return 'Bühnenraster 4–12 und höchstens 96 Elemente wählen'
+  if(!d || typeof d.name!=='string'||d.name.length>60||typeof d.linked!=='boolean'||!Array.isArray(d.parts)||d.parts.length>96) return 'Name und höchstens 96 Elemente wählen'
   if(![d.tileWidth??1,d.tileDepth??1].every(n=>Number.isInteger(n)&&n>=1&&n<=8))return 'Kartengrundfläche zwischen 1 und 8 Feldern wählen'
+  const grid=stageDetailSize(d.tileWidth,d.tileDepth)
+  if(d.width!==grid.width||d.depth!==grid.depth)return 'Bühnenraster muss zur Kartengrundfläche passen'
   const audience=d.audience??[],aw=d.tileWidth??1,ad=d.tileDepth??1
   if(!Array.isArray(audience)||audience.length>=aw*ad||audience.some(c=>!c||![c.x,c.z].every(Number.isInteger)||c.x<0||c.z<0||c.x>=aw||c.z>=ad))return 'Zuschauerfläche muss im Bühnenareal liegen; mindestens ein Technikfeld bleibt frei'
   const audienceKeys=new Set(audience.map(c=>`${c.x},${c.z}`))
