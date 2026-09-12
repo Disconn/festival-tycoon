@@ -5,13 +5,25 @@ import type { WorldView } from './view/WorldView'
 import { makeDraggable, makeResizable } from './dragPanel'
 
 export function mountStaffDetails(getGame:()=>GameState, view:WorldView, toast:(message:string,error?:boolean)=>void, release:()=>void) {
-  let selected:string|null=null, following=false, drawing=false, zoneEditing=false, grabbing=false
+  let selected:string|null=null, following=false, drawing=false, zoneEditing=false, grabbing=false, previewMode:'map'|'front'='map'
   const panel=document.createElement('aside');panel.className='panel staff-details';panel.hidden=true
-  panel.innerHTML='<div class="panel-header"><span class="panel-drag-line" aria-hidden="true"></span><h2 class="panel-header-title" data-name>Personal</h2><span class="panel-drag-line" aria-hidden="true"></span><button data-close class="panel-close-button" aria-label="Personalinfo schließen">×</button></div><div class="staff-minimap-row"><div class="staff-minimap"><canvas data-minimap></canvas></div><div class="staff-minimap-controls"><button data-zoom-in aria-label="Ansicht vergrößern">+</button><button data-zoom-out aria-label="Ansicht verkleinern">−</button><button data-grab aria-label="Personal greifen und platzieren">✋</button></div></div><p data-state></p><p data-load></p><p data-area></p><p data-zones hidden></p><button data-follow>Folgen</button><button data-manage-zones>Bereiche verwalten</button><button data-area-draw>Arbeitsbereich ziehen</button><button data-area-clear>Gesamtes Gelände</button><button data-fire-member>Entlassen</button>'
+  panel.innerHTML='<div class="panel-header"><span class="panel-drag-line" aria-hidden="true"></span><h2 class="panel-header-title" data-name>Personal</h2><span class="panel-drag-line" aria-hidden="true"></span><button data-close class="panel-close-button" aria-label="Personalinfo schließen">×</button></div><nav class="person-preview-modes" aria-label="Ansicht"><button type="button" data-preview-mode="map" aria-pressed="true">Karte</button><button type="button" data-preview-mode="front" aria-pressed="false">Person</button></nav><div class="staff-minimap-row"><div class="staff-minimap"><canvas data-minimap></canvas></div><div class="staff-minimap-controls"><button data-zoom-in aria-label="Ansicht vergrößern">+</button><button data-zoom-out aria-label="Ansicht verkleinern">−</button><button data-grab aria-label="Personal greifen und platzieren">✋</button></div></div><p data-state></p><p data-load></p><p data-area></p><p data-zones hidden></p><button data-follow>Folgen</button><button data-manage-zones>Bereiche verwalten</button><button data-area-draw>Arbeitsbereich ziehen</button><button data-area-clear>Gesamtes Gelände</button><button data-fire-member>Entlassen</button>'
   document.querySelector('.game-shell')!.append(panel)
   view.mountMinimap(panel.querySelector<HTMLCanvasElement>('[data-minimap]')!)
   makeDraggable(panel.querySelector<HTMLElement>('.panel-header')!, panel)
   makeResizable(panel)
+  const syncPreviewMode=()=>{
+    view.setStaffPreviewMode(previewMode)
+    panel.querySelectorAll<HTMLButtonElement>('[data-preview-mode]').forEach(button=>{
+      button.setAttribute('aria-pressed', String(button.dataset.previewMode===previewMode))
+    })
+  }
+  panel.querySelectorAll<HTMLButtonElement>('[data-preview-mode]').forEach(button=>{
+    button.addEventListener('click',()=>{
+      previewMode = button.dataset.previewMode==='front' ? 'front' : 'map'
+      syncPreviewMode()
+    })
+  })
   panel.querySelector('[data-zoom-in]')!.addEventListener('click',()=>view.zoomMinimap(0.8))
   panel.querySelector('[data-zoom-out]')!.addEventListener('click',()=>view.zoomMinimap(1.25))
   const cancel=()=>{
@@ -32,8 +44,11 @@ export function mountStaffDetails(getGame:()=>GameState, view:WorldView, toast:(
     panel.style.left=`${Math.max(4,staffRect.left-width-gap)}px`
     panel.style.top=`${staffRect.top}px`
   }
+  const close=()=>{
+    cancel();selected=null;view.setMinimapTarget(null);panel.hidden=true;following=false;view.followStaff(null);view.showStaffArea(null)
+  }
   const open=(id:string)=>{
-    cancel();document.querySelectorAll('#visitor-panel, #entity-panel').forEach(p=>p.classList.remove('visible'));view.followVisitor(null);selected=id;view.setMinimapTarget(id);if(following)view.followStaff(id)
+    cancel();document.querySelectorAll('#visitor-panel, #entity-panel').forEach(p=>p.classList.remove('visible'));view.followVisitor(null);view.setVisitorPreviewTarget(null);selected=id;view.setMinimapTarget(id);view.setStaffPreviewMode(previewMode);if(following)view.followStaff(id)
     const wasHidden=panel.hidden
     panel.hidden=false
     if(wasHidden)positionBesideStaffPanel()
@@ -41,7 +56,7 @@ export function mountStaffDetails(getGame:()=>GameState, view:WorldView, toast:(
   }
   view.setStaffClickHandler(open)
   const action=(from:{x:number;z:number}|null,to:{x:number;z:number}|null)=>{if(!selected)return;const result=getGame().manageFestival({type:'staffArea',staffId:selected,from,to});toast(result.message,!result.ok);update(getGame().snapshot)}
-  panel.querySelector('[data-close]')!.addEventListener('click',()=>{cancel();selected=null;view.setMinimapTarget(null);panel.hidden=true;following=false;view.followStaff(null);view.showStaffArea(null)})
+  panel.querySelector('[data-close]')!.addEventListener('click',close)
   panel.querySelector('[data-follow]')!.addEventListener('click',()=>{following=!following;view.followStaff(following?selected:null);update(getGame().snapshot)})
   panel.querySelector('[data-manage-zones]')!.addEventListener('click',()=>{
     if(zoneEditing){cancel();update(getGame().snapshot);return}
@@ -93,7 +108,7 @@ export function mountStaffDetails(getGame:()=>GameState, view:WorldView, toast:(
     if(!selected)return
     const carrier=s.festival.infrastructure.routes.find(r=>r.id===selected)
     const member=s.staff.find(p=>p.id===selected) ?? (carrier ? {name:'Träger mit Handkarren',role:null,state:'carrying' as const,cellX:carrier.position.x,cellZ:carrier.position.z,carryingWaste:0,workArea:carrier.workArea} : null)
-    if(!member){cancel();panel.hidden=true;selected=null;view.followStaff(null);view.setMinimapTarget(null);view.showStaffArea(null);return}
+    if(!member){close();return}
     const isStaff=!!member.role
     view.showStaffArea(isStaff?null:member.workArea??null)
     panel.querySelector('[data-name]')!.textContent=`${member.role ? STAFF_DEFINITIONS[member.role].icon : '📦'} ${member.name}`
@@ -114,5 +129,5 @@ export function mountStaffDetails(getGame:()=>GameState, view:WorldView, toast:(
     } else if(!drawing)panel.querySelector('[data-area]')!.textContent=member.workArea?`Arbeitsbereich: ${member.workArea.minX}, ${member.workArea.minZ} bis ${member.workArea.maxX}, ${member.workArea.maxZ}`:'Arbeitsbereich: gesamtes Gelände'
     panel.querySelector('[data-follow]')!.textContent=following?'Verfolgen beenden':'Folgen'
   }
-  return {update,open}
+  return {update,open,close}
 }

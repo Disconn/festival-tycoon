@@ -134,6 +134,7 @@ app.innerHTML = `
         </div>
         <div class="action-divider"></div>
         <div id="action-group-views" class="action-group" aria-label="Ansichten">
+          <button id="toggle-walk-mode" aria-pressed="false">🚶 Gelände betreten</button>
           <button id="open-logistics" aria-expanded="false">🚚 Logistik</button>
           <button id="open-day-plan" aria-expanded="false">📅 Tagesplan</button>
           <button id="open-complaints" aria-expanded="false">📣 Beschwerden</button>
@@ -519,13 +520,30 @@ app.innerHTML = `
     </aside>
     <section class="help panel">
       <strong id="context-help">Wähle ein Werkzeug und klicke auf das Gelände.</strong>
-      <span>Weg ziehen · Shift+Mausrad: Bauhöhe · R: Gebäude drehen · Q/E: Kamera</span>
+      <span id="control-hint">Weg ziehen · Shift+Mausrad: Bauhöhe · R: Gebäude drehen · Q/E: Kamera</span>
     </section>
+    <div id="walk-hud" class="walk-hud" hidden>
+      <p>WASD laufen · Umschalt rennen · Klick und Maus umsehen · Esc zurück zur Karte</p>
+      <div id="walk-stick" class="walk-stick" hidden>
+        <div class="walk-stick-knob"></div>
+      </div>
+    </div>
     <aside id="visitor-panel" class="visitor-panel panel" aria-label="Besucherinformationen">
       <div class="visitor-title">
         <span class="visitor-avatar">👤</span>
         <div><small>Besucher</small><strong id="visitor-name">–</strong></div>
         <button id="close-visitor" aria-label="Fenster schließen">×</button>
+      </div>
+      <nav class="person-preview-modes" aria-label="Ansicht">
+        <button type="button" id="visitor-preview-map" aria-pressed="true">Karte</button>
+        <button type="button" id="visitor-preview-front" aria-pressed="false">Person</button>
+      </nav>
+      <div class="staff-minimap-row">
+        <div class="staff-minimap"><canvas id="visitor-preview"></canvas></div>
+        <div class="staff-minimap-controls">
+          <button type="button" id="visitor-preview-zoom-in" aria-label="Ansicht vergrößern">+</button>
+          <button type="button" id="visitor-preview-zoom-out" aria-label="Ansicht verkleinern">−</button>
+        </div>
       </div>
       <button id="follow-visitor" class="visitor-follow" aria-pressed="false">📍 Besucher verfolgen</button>
       <p id="visitor-thought" class="visitor-thought">„…“</p>
@@ -1164,6 +1182,97 @@ try {
 const supplyPlanner = mountLogisticsUI(() => game, view, showToast)
 view.setPlacementValidator((kind, x, z, slot) => game.canPlace(kind, x, z, slot).ok)
 const staffDetails = mountStaffDetails(() => game, view, showToast, () => supplyPlanner.releaseTool())
+const walkModeButton = requireElement<HTMLButtonElement>('#toggle-walk-mode')
+const walkHud = requireElement<HTMLElement>('#walk-hud')
+const walkStick = requireElement<HTMLElement>('#walk-stick')
+const walkStickKnob = requireElement<HTMLElement>('.walk-stick-knob')
+const controlHint = requireElement<HTMLElement>('#control-hint')
+const syncWalkModeUi = (enabled: boolean): void => {
+  walkModeButton.setAttribute('aria-pressed', String(enabled))
+  walkModeButton.textContent = enabled ? '🗺️ Zurück zur Karte' : '🚶 Gelände betreten'
+  walkHud.hidden = !enabled
+  document.body.classList.toggle('walk-mode', enabled)
+  const coarse = window.matchMedia('(pointer: coarse)').matches
+  walkStick.hidden = !enabled || !coarse
+  const hint = walkHud.querySelector('p')
+  if (hint) {
+    hint.textContent = coarse
+      ? 'Stick laufen · Ziehen umsehen · Zurück zur Karte oben'
+      : 'WASD laufen · Umschalt rennen · Klick und Maus umsehen · Esc zurück zur Karte'
+  }
+  controlHint.textContent = enabled
+    ? (coarse ? 'Stick laufen · Ziehen umsehen' : 'WASD laufen · Umschalt rennen · Maus umsehen · Esc Karte')
+    : 'Weg ziehen · Shift+Mausrad: Bauhöhe · R: Gebäude drehen · Q/E: Kamera'
+  contextHelp.textContent = enabled
+    ? 'Du läufst über das Festivalgelände.'
+    : 'Wähle ein Werkzeug und klicke auf das Gelände.'
+}
+const setFestivalWalk = (enabled: boolean): void => {
+  if (enabled) {
+    supplyPlanner.close()
+    supplyPlanner.releaseTool()
+    game.setTool('inspect')
+    hideVisitorPanel()
+    staffDetails.close()
+    closeEntityPanel()
+  }
+  view.setWalkMode(enabled)
+}
+view.setWalkModeListener(syncWalkModeUi)
+walkModeButton.addEventListener('click', () => setFestivalWalk(!view.isWalkMode()))
+{
+  let stickPointer: number | null = null
+  const applyStick = (event: PointerEvent): void => {
+    const rect = walkStick.getBoundingClientRect()
+    const radius = rect.width / 2
+    const nx = (event.clientX - (rect.left + radius)) / radius
+    const ny = (event.clientY - (rect.top + radius)) / radius
+    const length = Math.hypot(nx, ny)
+    const x = length > 1 ? nx / length : nx
+    const y = length > 1 ? ny / length : ny
+    walkStickKnob.style.transform = `translate(${x * 22}px, ${y * 22}px)`
+    view.setWalkStick(x, -y)
+  }
+  const endStick = (): void => {
+    stickPointer = null
+    walkStickKnob.style.transform = ''
+    view.setWalkStick(0, 0)
+  }
+  walkStick.addEventListener('pointerdown', (event) => {
+    stickPointer = event.pointerId
+    walkStick.setPointerCapture(event.pointerId)
+    applyStick(event)
+    event.preventDefault()
+    event.stopPropagation()
+  })
+  walkStick.addEventListener('pointermove', (event) => {
+    if (stickPointer !== event.pointerId) return
+    applyStick(event)
+    event.preventDefault()
+  })
+  walkStick.addEventListener('pointerup', endStick)
+  walkStick.addEventListener('pointercancel', endStick)
+}
+view.mountVisitorPreview(requireElement<HTMLCanvasElement>('#visitor-preview'))
+let visitorPreviewMode: 'map' | 'front' = 'map'
+const visitorPreviewMapButton = requireElement<HTMLButtonElement>('#visitor-preview-map')
+const visitorPreviewFrontButton = requireElement<HTMLButtonElement>('#visitor-preview-front')
+const syncVisitorPreviewMode = (): void => {
+  view.setVisitorPreviewMode(visitorPreviewMode)
+  visitorPreviewMapButton.setAttribute('aria-pressed', String(visitorPreviewMode === 'map'))
+  visitorPreviewFrontButton.setAttribute('aria-pressed', String(visitorPreviewMode === 'front'))
+}
+visitorPreviewMapButton.addEventListener('click', () => {
+  visitorPreviewMode = 'map'
+  syncVisitorPreviewMode()
+})
+visitorPreviewFrontButton.addEventListener('click', () => {
+  visitorPreviewMode = 'front'
+  syncVisitorPreviewMode()
+})
+requireElement<HTMLButtonElement>('#visitor-preview-zoom-in').addEventListener('click', () => view.zoomVisitorPreview(0.8))
+requireElement<HTMLButtonElement>('#visitor-preview-zoom-out').addEventListener('click', () => view.zoomVisitorPreview(1.25))
+syncVisitorPreviewMode()
 
 function bindGameState(nextGame: GameState): void {
   unsubscribe()
@@ -2753,6 +2862,14 @@ function updateContextHelp(): void {
   }
 }
 
+function hideVisitorPanel(): void {
+  selectedVisitorId = null
+  followedVisitorId = null
+  view.followVisitor(null)
+  view.setVisitorPreviewTarget(null)
+  visitorPanel.classList.remove('visible')
+}
+
 function selectVisitor(visitorId: string): void {
   selectedVisitorId = visitorId
   if (followedVisitorId) {
@@ -2761,6 +2878,9 @@ function selectVisitor(visitorId: string): void {
   }
   selectedEntity = null
   entityPanel.hidden = true
+  staffDetails.close()
+  view.setVisitorPreviewTarget(visitorId)
+  view.setVisitorPreviewMode(visitorPreviewMode)
   visitorPanel.classList.add('visible')
   updateVisitorPanel()
 }
@@ -2774,6 +2894,7 @@ function updateVisitorPanel(): void {
       view.followVisitor(null)
     }
     selectedVisitorId = null
+    view.setVisitorPreviewTarget(null)
     visitorPanel.classList.remove('visible')
     return
   }
@@ -2917,8 +3038,7 @@ function openRideBuilder(id: string): void {
   if (coasterBuilderActive) closeCoasterBuilder()
   if (pathEditorActive) closePathEditor()
   closeEntityPanel(); closeBuildMenu(); closeBulldozeMenu(); supplyPlanner.releaseTool()
-  selectedVisitorId=null; followedVisitorId=null; view.followVisitor(null)
-  visitorPanel.classList.remove('visible')
+  hideVisitorPanel()
   activeRideId=id; bungeeBuildMode=false; view.bungeePreviewHeight=null
   requireElement<HTMLInputElement>('#ride-target-height').value=String(ride.bungeeHeight ?? 20)
   const panel=requireElement<HTMLElement>('#ride-builder')
@@ -3009,10 +3129,7 @@ function openEntityInfoForBuilding(buildingId: string): void {
   closeRideBuilder(false)
   selectedEntity = { type: 'building', id: buildingId }
   entityTab = 'overview'
-  selectedVisitorId = null
-  followedVisitorId = null
-  view.followVisitor(null)
-  visitorPanel.classList.remove('visible')
+  hideVisitorPanel()
   entityPanel.hidden = false
   updateEntityPanel()
 }
@@ -3021,10 +3138,7 @@ function openEntityInfoForCoaster(coasterId: string): void {
   closeRideBuilder(false)
   selectedEntity = { type: 'coaster', id: coasterId }
   entityTab = 'overview'
-  selectedVisitorId = null
-  followedVisitorId = null
-  view.followVisitor(null)
-  visitorPanel.classList.remove('visible')
+  hideVisitorPanel()
   entityPanel.hidden = false
   updateEntityPanel()
 }
@@ -3826,10 +3940,7 @@ requireElement<HTMLButtonElement>('#start-scenario').addEventListener(
       return
     }
     if (pathEditorActive) closePathEditor()
-    selectedVisitorId = null
-    followedVisitorId = null
-    view.followVisitor(null)
-    visitorPanel.classList.remove('visible')
+    hideVisitorPanel()
     bindGameState(GameState.startNew(readScenarioForm()))
     setScenarioPanelOpen(false)
     showToast('Neues Szenario gestartet')
@@ -4450,10 +4561,7 @@ document.querySelector<HTMLButtonElement>('#load')?.addEventListener('click', ()
 })
 
 document.querySelector<HTMLButtonElement>('#close-visitor')?.addEventListener('click', () => {
-  selectedVisitorId = null
-  followedVisitorId = null
-  view.followVisitor(null)
-  visitorPanel.classList.remove('visible')
+  hideVisitorPanel()
 })
 
 followVisitorButton.addEventListener('click', () => {
@@ -4525,6 +4633,12 @@ dispatchIntervalInput.addEventListener('input', () => {
 
 window.addEventListener('keydown', (event) => {
   if (isTextEntryTarget(event.target) || isTextEntryTarget(document.activeElement)) return
+  if (event.key === 'Escape' && view.isWalkMode()) {
+    event.preventDefault()
+    setFestivalWalk(false)
+    return
+  }
+  if (view.isWalkMode() && event.code !== 'Space') return
   if ((event.key >= '1' && event.key <= '9') || event.key === '0') {
     const allTools: Tool[] = [
       'path',
@@ -4627,6 +4741,7 @@ function animate(time: number): void {
   const viewStart = performance.now()
   measuredSimulationMs += viewStart - simulationStart
   view.update(game.snapshot, game.renderAlpha, game.worldRevision)
+  view.advanceWalk(deltaSeconds)
   const renderStart = performance.now()
   measuredViewMs += renderStart - viewStart
   view.render()

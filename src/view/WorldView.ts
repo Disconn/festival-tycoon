@@ -44,6 +44,7 @@ import {
   MeshBasicMaterial,
   Object3D,
   OrthographicCamera,
+  PerspectiveCamera,
   Plane,
   PlaneGeometry,
   SpotLight,
@@ -133,6 +134,29 @@ type ElevationHandler = (delta: number) => void
 type DragEndHandler = () => void
 type CoasterPieceHandler = (coasterId: string, pieceIndex: number) => void
 
+const WALK_EYE_HEIGHT = 0.68
+const WALK_SPEED = 2.8
+const WALK_RUN_SPEED = 5.6
+const WALK_LOOK_SENSITIVITY = 0.0024
+const WALK_BLOCKED_KINDS = new Set<string>([
+  'food', 'toilet', 'ride', 'alcohol', 'securityGate', 'tree', 'hedge', 'shrub', 'rock', 'statue',
+  'picnicTable', 'parasol', 'fence', 'stage', 'directionalSpeaker', 'omniSpeaker', 'ambulanceGarage',
+  'busStop', 'busDepot', 'wasteDepot', 'generator', 'backupGenerator', 'foh', 'delayTower',
+  'videoWall', 'laserShow', 'fireworkBattery',
+])
+export type PersonPreviewMode = 'map' | 'front'
+type PersonPreviewSlot = {
+  canvas: HTMLCanvasElement
+  renderer: WebGLRenderer
+  mapCamera: OrthographicCamera
+  frontCamera: PerspectiveCamera
+  targetId: string | null
+  kind: 'staff' | 'visitor'
+  mode: PersonPreviewMode
+  mapHeight: number
+  frontDistance: number
+}
+
 export class WorldView {
   private rideGates = new Group()
   private rideGatePreview = Object.assign(new Group(), {visible:false})
@@ -169,6 +193,17 @@ export class WorldView {
   private noonSunColor = new Color(0xfff1cf)
   private twilightSunColor = new Color(0xff9b68)
   private camera = new OrthographicCamera()
+  private walkCamera = new PerspectiveCamera(68, 1, 0.06, 90)
+  private walkMode = false
+  private walkX = 0
+  private walkZ = 0
+  private walkYaw = 0
+  private walkPitch = -0.12
+  private walkKeys = new Set<string>()
+  private walkStickX = 0
+  private walkStickZ = 0
+  private walkLookActive = false
+  private walkModeListener: ((enabled: boolean) => void) | null = null
   private raycaster = new Raycaster()
   private pointer = new Vector2()
   private groundPlane = new Plane(new Vector3(0, 1, 0), 0)
@@ -245,6 +280,7 @@ export class WorldView {
     if (enabled && !this.logisticsMode) { this.previousOverlays = groups.map(g => g.visible); this.followVisitor(null) }
     if (!enabled && this.logisticsMode) groups.forEach((g, n) => g.visible = this.previousOverlays[n]!)
     this.logisticsMode = enabled
+    if (enabled && this.walkMode) this.setWalkMode(false)
   }
   private visitors = new Group()
   private visitorInstanceIds: string[] = []
@@ -382,11 +418,8 @@ export class WorldView {
   private onCellHover: HoverHandler
   private onStaffClick: VisitorHandler = () => {}
   private followedStaffId: string | null = null
-  private minimapStaffId: string | null = null
-  private minimapCanvas: HTMLCanvasElement | null = null
-  private minimapRenderer: WebGLRenderer | null = null
-  private minimapCamera: OrthographicCamera | null = null
-  private minimapViewHeight = 7
+  private staffPreview: PersonPreviewSlot | null = null
+  private visitorPreview: PersonPreviewSlot | null = null
   private workAreaOverlay: InstancedMesh | null = null
   private workAreaStamp = ''
   private workZonesOverlay: InstancedMesh | null = null
@@ -560,8 +593,13 @@ export class WorldView {
     this.syncInterpolation(snapshot, renderAlpha)
     this.syncWorldSize(snapshot.scenario?.worldSize ?? WORLD_SIZE)
     if (dataChanged) this.rebuildTerrainIfNeeded(snapshot)
+    if (this.walkMode) {
+      this.snapWalkHeight()
+      this.applyWalkCamera()
+    }
     if (this.grid) {
       this.grid.visible =
+        !this.walkMode &&
         snapshot.selectedTool !== 'inspect' &&
         snapshot.selectedTool !== 'bulldoze'
     }
@@ -645,16 +683,17 @@ export class WorldView {
     this.staffView.group.visible = !this.logisticsMode
     this.coasterTrains.visible = !this.logisticsMode
     this.cashEffects.visible = !this.logisticsMode
-    if (!this.logisticsMode) { this.updateVisitors(snapshot.visitors); this.updateVisitorFollow(snapshot.visitors) }
-    if(this.followedStaffId) {
+    if (!this.logisticsMode) {
+      this.updateVisitors(snapshot.visitors)
+      if (!this.walkMode) this.updateVisitorFollow(snapshot.visitors)
+    }
+    if(this.followedStaffId && !this.walkMode) {
       const position=this.resolveStaffPosition(this.followedStaffId,snapshot)
       if(position) {this.cameraTarget.set(position.x,position.y,position.z);this.updateCamera()}
       else this.followedStaffId=null
     }
-    if(this.minimapStaffId) {
-      const position=this.resolveStaffPosition(this.minimapStaffId,snapshot)
-      if(position) this.renderMinimap(position.x,position.z)
-    }
+    this.renderPersonPreview(this.staffPreview, snapshot)
+    this.renderPersonPreview(this.visitorPreview, snapshot)
     this.updateCashEffects(snapshot.cashEffects)
     this.updateSoundWaves(
       isFestivalOfferActive(
@@ -677,7 +716,7 @@ export class WorldView {
   }
 
   render(): void {
-    this.renderer.render(this.scene, this.camera)
+    this.renderer.render(this.scene, this.walkMode ? this.walkCamera : this.camera)
   }
 
   private syncInterpolation(
@@ -774,6 +813,11 @@ export class WorldView {
   }
 
   rotate(direction: number): void {
+    if (this.walkMode) {
+      this.walkYaw += direction * (Math.PI / 2)
+      this.applyWalkCamera()
+      return
+    }
     this.cameraAngle += direction * (Math.PI / 2)
     this.updateCamera()
   }
@@ -849,7 +893,13 @@ export class WorldView {
   }
 
   setStaffClickHandler(handler: VisitorHandler): void { this.onStaffClick = handler }
-  followStaff(id: string | null): void { this.followedStaffId = id; if(id) this.followedVisitorId = null }
+  followStaff(id: string | null): void {
+    this.followedStaffId = id
+    if (id) {
+      this.followedVisitorId = null
+      if (this.walkMode) this.setWalkMode(false)
+    }
+  }
 
   private resolveStaffPosition(id: string, snapshot: Readonly<GameSnapshot>): { x: number; y: number; z: number } | null {
     const carrier = snapshot.festival.infrastructure.routes.find((r) => r.id === id)
@@ -861,23 +911,105 @@ export class WorldView {
   }
 
   mountMinimap(canvas: HTMLCanvasElement): void {
-    this.minimapCanvas = canvas
-    this.minimapRenderer = new WebGLRenderer({ canvas, antialias: true, alpha: true })
-    this.minimapRenderer.shadowMap.enabled = false
-    this.minimapCamera = new OrthographicCamera()
+    this.disposePersonPreview(this.staffPreview)
+    this.staffPreview = this.createPersonPreview(canvas, 'staff')
   }
 
-  setMinimapTarget(id: string | null): void { this.minimapStaffId = id }
+  mountVisitorPreview(canvas: HTMLCanvasElement): void {
+    this.disposePersonPreview(this.visitorPreview)
+    this.visitorPreview = this.createPersonPreview(canvas, 'visitor')
+  }
+
+  setMinimapTarget(id: string | null): void {
+    if (this.staffPreview) this.staffPreview.targetId = id
+  }
+
+  setVisitorPreviewTarget(id: string | null): void {
+    if (this.visitorPreview) this.visitorPreview.targetId = id
+  }
+
+  setStaffPreviewMode(mode: PersonPreviewMode): void {
+    if (this.staffPreview) this.staffPreview.mode = mode
+  }
+
+  setVisitorPreviewMode(mode: PersonPreviewMode): void {
+    if (this.visitorPreview) this.visitorPreview.mode = mode
+  }
 
   zoomMinimap(factor: number): void {
-    this.minimapViewHeight = MathUtils.clamp(this.minimapViewHeight * factor, 2.5, 16)
+    this.zoomPersonPreview(this.staffPreview, factor)
   }
 
-  private renderMinimap(x: number, z: number): void {
-    const canvas = this.minimapCanvas
-    const renderer = this.minimapRenderer
-    const camera = this.minimapCamera
-    if (!canvas || !renderer || !camera) return
+  zoomVisitorPreview(factor: number): void {
+    this.zoomPersonPreview(this.visitorPreview, factor)
+  }
+
+  private createPersonPreview(canvas: HTMLCanvasElement, kind: PersonPreviewSlot['kind']): PersonPreviewSlot {
+    const renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true })
+    renderer.shadowMap.enabled = false
+    renderer.debug.checkShaderErrors = false
+    return {
+      canvas,
+      renderer,
+      mapCamera: new OrthographicCamera(),
+      frontCamera: new PerspectiveCamera(36, 1, 0.08, 48),
+      targetId: null,
+      kind,
+      mode: 'map',
+      mapHeight: 7,
+      frontDistance: 1.85,
+    }
+  }
+
+  private disposePersonPreview(slot: PersonPreviewSlot | null): void {
+    slot?.renderer.dispose()
+  }
+
+  private zoomPersonPreview(slot: PersonPreviewSlot | null, factor: number): void {
+    if (!slot) return
+    if (slot.mode === 'front') {
+      slot.frontDistance = MathUtils.clamp(slot.frontDistance * factor, 1.15, 3.4)
+      return
+    }
+    slot.mapHeight = MathUtils.clamp(slot.mapHeight * factor, 2.5, 16)
+  }
+
+  private resolveVisitorPreviewPose(
+    id: string,
+    snapshot: Readonly<GameSnapshot>,
+  ): { x: number; y: number; z: number; facing: number } | null {
+    const visitor = snapshot.visitors.find((entry) => entry.id === id)
+    if (!visitor) return null
+    const current = this.currentVisitorPositions.get(id) ?? { x: visitor.x, y: visitor.y, z: visitor.z }
+    const previous = this.previousVisitorPositions.get(id)
+    const interpolate = previous && Math.hypot(previous.x - current.x, previous.z - current.z) < 5
+    const x = interpolate ? previous.x + (current.x - previous.x) * this.renderAlpha : current.x
+    const y = interpolate ? previous.y + (current.y - previous.y) * this.renderAlpha : current.y
+    const z = interpolate ? previous.z + (current.z - previous.z) * this.renderAlpha : current.z
+    const next = visitor.route[0]
+    const facing = next
+      ? Math.atan2(next.x + visitor.tileOffsetX - visitor.x, next.z + visitor.tileOffsetZ - visitor.z)
+      : visitor.facing
+    return { x, y: this.actorTerrainHeight(x, z, y), z, facing }
+  }
+
+  private resolveStaffPreviewPose(
+    id: string,
+    snapshot: Readonly<GameSnapshot>,
+  ): { x: number; y: number; z: number; facing: number } | null {
+    const position = this.resolveStaffPosition(id, snapshot)
+    if (!position) return null
+    const member = snapshot.staff.find((entry) => entry.id === id)
+    return { x: position.x, y: position.y, z: position.z, facing: member?.facing ?? 0 }
+  }
+
+  private renderPersonPreview(slot: PersonPreviewSlot | null, snapshot: Readonly<GameSnapshot>): void {
+    if (!slot?.targetId) return
+    const pose = slot.kind === 'visitor'
+      ? this.resolveVisitorPreviewPose(slot.targetId, snapshot)
+      : this.resolveStaffPreviewPose(slot.targetId, snapshot)
+    if (!pose) return
+    const { canvas, renderer } = slot
     const width = canvas.clientWidth
     const height = canvas.clientHeight
     if (width === 0 || height === 0) return
@@ -887,7 +1019,26 @@ export class WorldView {
       renderer.setSize(width, height, false)
     }
     const aspect = width / height
-    const viewHeight = this.minimapViewHeight
+    if (slot.mode === 'front') {
+      const camera = slot.frontCamera
+      const distance = slot.frontDistance
+      const bodyY = pose.y + 0.42
+      camera.aspect = aspect
+      camera.fov = 36
+      camera.near = 0.08
+      camera.far = 48
+      camera.position.set(
+        pose.x + Math.sin(pose.facing) * distance,
+        bodyY + 0.1,
+        pose.z + Math.cos(pose.facing) * distance,
+      )
+      camera.lookAt(pose.x, bodyY - 0.04, pose.z)
+      camera.updateProjectionMatrix()
+      renderer.render(this.scene, camera)
+      return
+    }
+    const camera = slot.mapCamera
+    const viewHeight = slot.mapHeight
     camera.left = (-viewHeight * aspect) / 2
     camera.right = (viewHeight * aspect) / 2
     camera.top = viewHeight / 2
@@ -895,17 +1046,94 @@ export class WorldView {
     camera.near = 0.1
     camera.far = 100
     const horizontalDistance = 24
-    camera.position.set(x + Math.sin(this.cameraAngle) * horizontalDistance, 20, z + Math.cos(this.cameraAngle) * horizontalDistance)
-    camera.lookAt(x, 0, z)
+    camera.position.set(
+      pose.x + Math.sin(this.cameraAngle) * horizontalDistance,
+      20,
+      pose.z + Math.cos(this.cameraAngle) * horizontalDistance,
+    )
+    camera.lookAt(pose.x, 0, pose.z)
     camera.updateProjectionMatrix()
     renderer.render(this.scene, camera)
   }
 
   followVisitor(visitorId: string | null): void {
-    if (visitorId) this.followedStaffId = null
+    if (visitorId) {
+      this.followedStaffId = null
+      if (this.walkMode) this.setWalkMode(false)
+    }
     this.followedVisitorId = visitorId
     if (!visitorId || !this.currentSnapshot) return
     this.updateVisitorFollow(this.currentSnapshot.visitors, true)
+  }
+
+  isWalkMode(): boolean {
+    return this.walkMode
+  }
+
+  setWalkModeListener(listener: ((enabled: boolean) => void) | null): void {
+    this.walkModeListener = listener
+  }
+
+  setWalkStick(x: number, z: number): void {
+    this.walkStickX = MathUtils.clamp(x, -1, 1)
+    this.walkStickZ = MathUtils.clamp(z, -1, 1)
+  }
+
+  setWalkMode(enabled: boolean): void {
+    if (this.walkMode === enabled) return
+    if (enabled) {
+      this.followVisitor(null)
+      this.followedStaffId = null
+      this.walkX = this.cameraTarget.x
+      this.walkZ = this.cameraTarget.z
+      this.walkYaw = this.cameraAngle + Math.PI
+      this.walkPitch = -0.12
+      this.walkKeys.clear()
+      this.walkStickX = 0
+      this.walkStickZ = 0
+      this.walkLookActive = false
+      this.snapWalkHeight()
+      this.applyWalkCamera()
+      this.walkMode = true
+    } else {
+      this.walkMode = false
+      this.walkKeys.clear()
+      this.walkStickX = 0
+      this.walkStickZ = 0
+      this.walkLookActive = false
+      if (document.pointerLockElement === this.canvas) document.exitPointerLock()
+      this.cameraTarget.set(this.walkX, 0, this.walkZ)
+      this.updateCamera()
+    }
+    this.resize()
+    this.walkModeListener?.(this.walkMode)
+  }
+
+  advanceWalk(deltaSeconds: number): void {
+    if (!this.walkMode) return
+    const sprint = this.walkKeys.has('ShiftLeft') || this.walkKeys.has('ShiftRight')
+    const speed = (sprint ? WALK_RUN_SPEED : WALK_SPEED)
+    let inputX = this.walkStickX
+    let inputZ = this.walkStickZ
+    if (this.walkKeys.has('KeyW') || this.walkKeys.has('ArrowUp')) inputZ += 1
+    if (this.walkKeys.has('KeyS') || this.walkKeys.has('ArrowDown')) inputZ -= 1
+    if (this.walkKeys.has('KeyA') || this.walkKeys.has('ArrowLeft')) inputX -= 1
+    if (this.walkKeys.has('KeyD') || this.walkKeys.has('ArrowRight')) inputX += 1
+    const length = Math.hypot(inputX, inputZ)
+    if (length > 0) {
+      const step = speed * deltaSeconds / length
+      const forwardX = Math.sin(this.walkYaw)
+      const forwardZ = Math.cos(this.walkYaw)
+      // Camera looks down -Z, so view-right is the opposite of the +Y × forward vector.
+      const rightX = -Math.cos(this.walkYaw)
+      const rightZ = Math.sin(this.walkYaw)
+      const nextX = this.walkX + (forwardX * inputZ + rightX * inputX) * step
+      const nextZ = this.walkZ + (forwardZ * inputZ + rightZ * inputX) * step
+      if (this.canWalkTo(nextX, this.walkZ)) this.walkX = nextX
+      if (this.canWalkTo(this.walkX, nextZ)) this.walkZ = nextZ
+    }
+    this.snapWalkHeight()
+    this.applyWalkCamera()
   }
 
   setPathConstructionPreview(
@@ -2547,9 +2775,9 @@ export class WorldView {
 
   private bindEvents(): void {
     bindTouchCamera(this.canvas, {
-      pan: (x, y) => this.panCamera(x, y),
-      zoom: factor => this.zoomBy(factor),
-      panWithOneFinger: () => this.touchPanMode || (this.currentSnapshot?.selectedTool === 'inspect' && !this.groundAreaHandler),
+      pan: (x, y) => { if (!this.walkMode) this.panCamera(x, y) },
+      zoom: factor => { if (!this.walkMode) this.zoomBy(factor) },
+      panWithOneFinger: () => !this.walkMode && (this.touchPanMode || (this.currentSnapshot?.selectedTool === 'inspect' && !this.groundAreaHandler)),
       cancelBuild: () => {
         this.groundAreaStart = null
         this.groundAreaEndKey = ''
@@ -2565,6 +2793,15 @@ export class WorldView {
     this.canvas.addEventListener('contextmenu', (event) => event.preventDefault())
     this.canvas.addEventListener('pointerleave', () => { if (!this.pointerDownCell) this.hoveredCell = null })
     this.canvas.addEventListener('pointerdown', (event) => {
+      if (this.walkMode) {
+        this.walkLookActive = true
+        this.lastPointer.set(event.clientX, event.clientY)
+        if (event.pointerType === 'mouse' && document.pointerLockElement !== this.canvas) {
+          void this.canvas.requestPointerLock()
+        }
+        try { this.canvas.setPointerCapture(event.pointerId) } catch { /* already captured */ }
+        return
+      }
       this.groundAreaCancelled = false
       this.pickCell(event)
       this.dragging = event.button === 1 || event.button === 2
@@ -2581,6 +2818,10 @@ export class WorldView {
       }
     })
     this.canvas.addEventListener('pointerup', (event) => {
+      if (this.walkMode) {
+        this.walkLookActive = false
+        return
+      }
       if (this.groundAreaCancelled) { this.groundAreaCancelled = false; return }
       if (event.button === 0 && this.groundAreaStart) {
         this.pickCell(event)
@@ -2625,10 +2866,21 @@ export class WorldView {
       this.sceneryDragLock = null
     })
     this.canvas.addEventListener('pointercancel', () => {
+      this.walkLookActive = false
       this.groundAreaStart = null; this.groundAreaEndKey = ''; this.leftPointerDown = false
       this.painting = false; this.dragging = false; this.sceneryDragLock = null; this.setPathDragPreview([], 0)
     })
     this.canvas.addEventListener('pointermove', (event) => {
+      if (this.walkMode) {
+        const locked = document.pointerLockElement === this.canvas
+        if (locked || this.walkLookActive) {
+          const dx = locked ? event.movementX : event.clientX - this.lastPointer.x
+          const dy = locked ? event.movementY : event.clientY - this.lastPointer.y
+          this.lookWalk(dx, dy)
+        }
+        this.lastPointer.set(event.clientX, event.clientY)
+        return
+      }
       if (this.groundAreaStart) { this.pickCell(event); this.updateGroundAreaPreview(); return }
       if (this.dragging && (this.dragButton === 1 || this.dragButton === 2)) {
         this.panCamera(event.clientX - this.lastPointer.x, event.clientY - this.lastPointer.y)
@@ -2680,6 +2932,7 @@ export class WorldView {
       'wheel',
       (event) => {
         event.preventDefault()
+        if (this.walkMode) return
         if (event.shiftKey) {
           this.onElevationChange(event.deltaY < 0 ? 1 : -1)
           return
@@ -2692,9 +2945,17 @@ export class WorldView {
     )
     window.addEventListener('keydown', event => {
       if (isTextEntryTarget(event.target) || isTextEntryTarget(document.activeElement)) return
+      if (this.walkMode && this.isWalkControl(event.code)) {
+        this.walkKeys.add(event.code)
+        event.preventDefault()
+        return
+      }
       if (event.key !== 'Escape' || !this.groundAreaStart) return
       this.setGroundAreaTool(this.groundAreaHandler)
       this.groundAreaCancelled = true; this.leftPointerDown = false; this.pointerDownCell = null
+    })
+    window.addEventListener('keyup', event => {
+      this.walkKeys.delete(event.code)
     })
     window.addEventListener('resize', () => this.resize())
   }
@@ -2797,6 +3058,11 @@ export class WorldView {
 
   private updatePreview(): void {
     this.sceneryPreview.visible = false
+    if (this.walkMode) {
+      this.preview.visible = false
+      this.previewArrow.visible = false
+      return
+    }
     if (this.constructionActive || this.rideGatePreview.visible) {
       this.preview.visible = false
       this.previewArrow.visible = false
@@ -2983,12 +3249,14 @@ export class WorldView {
   touchPanMode = false
 
   zoomBy(factor: number): void {
+    if (this.walkMode) return
     this.zoom = MathUtils.clamp(this.zoom * factor, 0.55, 2.4)
     this.resize()
     this.updateCamera()
   }
 
   private panCamera(deltaX: number, deltaY: number): void {
+    if (this.walkMode) return
     const scale = 0.018 / this.zoom
     const right = new Vector3(Math.cos(this.cameraAngle), 0, -Math.sin(this.cameraAngle))
     const forward = new Vector3(Math.sin(this.cameraAngle), 0, Math.cos(this.cameraAngle))
@@ -3030,6 +3298,10 @@ export class WorldView {
   }
 
   private updateCamera(): void {
+    if (this.walkMode) {
+      this.applyWalkCamera()
+      return
+    }
     const horizontalDistance = this.cameraDistance
     this.camera.position.set(
       this.cameraTarget.x + Math.sin(this.cameraAngle) * horizontalDistance,
@@ -3037,6 +3309,57 @@ export class WorldView {
       this.cameraTarget.z + Math.cos(this.cameraAngle) * horizontalDistance,
     )
     this.camera.lookAt(this.cameraTarget)
+  }
+
+  private isWalkControl(code: string): boolean {
+    return code === 'KeyW' || code === 'KeyA' || code === 'KeyS' || code === 'KeyD'
+      || code === 'ArrowUp' || code === 'ArrowDown' || code === 'ArrowLeft' || code === 'ArrowRight'
+      || code === 'ShiftLeft' || code === 'ShiftRight'
+  }
+
+  private lookWalk(deltaX: number, deltaY: number): void {
+    this.walkYaw -= deltaX * WALK_LOOK_SENSITIVITY
+    this.walkPitch = MathUtils.clamp(this.walkPitch - deltaY * WALK_LOOK_SENSITIVITY, -1.2, 1.05)
+    this.applyWalkCamera()
+  }
+
+  private snapWalkHeight(): void {
+    this.cameraTarget.y = this.walkSurfaceHeight(this.walkX, this.walkZ) + WALK_EYE_HEIGHT
+  }
+
+  private walkSurfaceHeight(x: number, z: number): number {
+    const shape = this.terrainShape
+    if (!shape) return 0
+    const radius = 0.2
+    return Math.max(
+      shape.sample(x, z),
+      shape.sample(x + radius, z),
+      shape.sample(x - radius, z),
+      shape.sample(x, z + radius),
+      shape.sample(x, z - radius),
+    )
+  }
+
+  private applyWalkCamera(): void {
+    const eyeY = this.walkSurfaceHeight(this.walkX, this.walkZ) + WALK_EYE_HEIGHT
+    const lookX = this.walkX + Math.sin(this.walkYaw) * Math.cos(this.walkPitch)
+    const lookY = eyeY + Math.sin(this.walkPitch)
+    const lookZ = this.walkZ + Math.cos(this.walkYaw) * Math.cos(this.walkPitch)
+    this.walkCamera.position.set(this.walkX, eyeY, this.walkZ)
+    this.walkCamera.lookAt(lookX, lookY, lookZ)
+    this.cameraTarget.set(this.walkX, eyeY, this.walkZ)
+  }
+
+  private canWalkTo(x: number, z: number): boolean {
+    const limit = this.worldSize / 2 - 0.28
+    if (x < -limit || x >= limit || z < -limit || z >= limit) return false
+    const snapshot = this.currentSnapshot
+    if (!snapshot) return true
+    const cellX = Math.floor(x)
+    const cellZ = Math.floor(z)
+    return !snapshot.buildings.some((building) =>
+      WALK_BLOCKED_KINDS.has(building.kind) && occupiesBuildingCell(building, cellX, cellZ),
+    )
   }
 
   private resize(): void {
@@ -3055,5 +3378,9 @@ export class WorldView {
     this.camera.near = 0.1
     this.camera.far = 100
     this.camera.updateProjectionMatrix()
+    this.walkCamera.aspect = aspect
+    this.walkCamera.near = 0.06
+    this.walkCamera.far = Math.max(90, this.worldSize * 2)
+    this.walkCamera.updateProjectionMatrix()
   }
 }
