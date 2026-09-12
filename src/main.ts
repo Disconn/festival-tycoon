@@ -1055,38 +1055,54 @@ let crowdingOverlayVisible = false
 let attractivenessOverlayVisible = false
 let partyOverlayVisible = false
 
-const view = new WorldView(
-  canvas,
-  (cell) => handleCellClick(cell),
-  (cell) => {
-    hoveredCell = cell
-    updateContextHelp()
-  },
-  (visitorId) => selectVisitor(visitorId),
-  (cell) => paintPath(cell),
-  (delta) => {
-    if (pathEditorActive) {
-      setPathSlope(pathSlope + delta)
-    } else {
-      game.adjustBuildElevation(delta)
-    }
-  },
-  (cell) => startPathDrag(cell),
-  () => finishPathDrag(),
-  (coasterId, pieceIndex) => {
-    if (!coasterBuilderActive) return
-    const coaster = game.getCoaster(coasterId)
-    if (!coaster) return
-    activeCoasterId = coasterId
-    coasterStartCandidate = null
-    coasterEditIndex = Math.max(0, Math.min(coaster.pieces.length - 1, pieceIndex))
-    coasterTargetPitch = coaster.pieces[coasterEditIndex]?.end.pitch ?? 0
-    coasterTargetBank = coaster.pieces[coasterEditIndex]?.end.bank ?? 0
-    trackPieceSelect.value = getConstantPitchPiece(coasterTargetPitch)
-    updateCoasterBuilder()
-    showToast(`Bauanker auf Element ${coasterEditIndex + 1} gesetzt`)
-  },
-)
+let view: WorldView
+try {
+  view = new WorldView(
+    canvas,
+    (cell) => handleCellClick(cell),
+    (cell) => {
+      hoveredCell = cell
+      updateContextHelp()
+    },
+    (visitorId) => selectVisitor(visitorId),
+    (cell) => paintPath(cell),
+    (delta) => {
+      if (pathEditorActive) {
+        setPathSlope(pathSlope + delta)
+      } else {
+        game.adjustBuildElevation(delta)
+      }
+    },
+    (cell) => startPathDrag(cell),
+    () => finishPathDrag(),
+    (coasterId, pieceIndex) => {
+      if (!coasterBuilderActive) return
+      const coaster = game.getCoaster(coasterId)
+      if (!coaster) return
+      activeCoasterId = coasterId
+      coasterStartCandidate = null
+      coasterEditIndex = Math.max(0, Math.min(coaster.pieces.length - 1, pieceIndex))
+      coasterTargetPitch = coaster.pieces[coasterEditIndex]?.end.pitch ?? 0
+      coasterTargetBank = coaster.pieces[coasterEditIndex]?.end.bank ?? 0
+      trackPieceSelect.value = getConstantPitchPiece(coasterTargetPitch)
+      updateCoasterBuilder()
+      showToast(`Bauanker auf Element ${coasterEditIndex + 1} gesetzt`)
+    },
+  )
+} catch (error) {
+  console.error('WorldView-Initialisierung fehlgeschlagen (WebGL nicht verfügbar?):', error)
+  document.body.innerHTML = `
+    <div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;overflow:auto;padding:24px;box-sizing:border-box;background:#17241f;color:#edf7f1;font:14px/1.6 Tahoma, Verdana, system-ui, sans-serif;">
+      <div style="max-width:480px;">
+        <h1 style="font-size:20px;margin:0 0 12px;">3D-Grafik nicht verfügbar</h1>
+        <p>Festival Tycoon benötigt WebGL, das dieser Browser oder dieses System gerade nicht bereitstellt.</p>
+        <p>Mögliche Ursachen: WebGL ist im Browser deaktiviert (in Firefox unter <code>about:config</code> die Einstellung <code>webgl.disabled</code> prüfen), eine Sicherheits- oder Unternehmensrichtlinie blockiert es, oder die Grafiktreiber sind veraltet bzw. von der Blockliste des Browsers betroffen.</p>
+        <p>Bitte aktuelle Grafiktreiber sicherstellen oder einen anderen Browser probieren.</p>
+      </div>
+    </div>
+  `
+  throw error
+}
 
 const supplyPlanner = mountLogisticsUI(() => game, view, showToast)
 const staffDetails = mountStaffDetails(() => game, view, showToast, () => supplyPlanner.releaseTool())
