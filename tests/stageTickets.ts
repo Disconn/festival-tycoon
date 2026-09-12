@@ -22,9 +22,9 @@ export function testStageTickets(fixture:(count?:number)=>GameState){
   assert.ok((legacy as any).spawnVisitorMember('day','legacy','pedestrian',false),'legacy saves keep arrivals')
   const build=fixture(0),bs=build.snapshot as GameSnapshot;build.addDebugMoney()
   const design=defaultStageDesign()
-  design.parts.push({id:'truss',kind:'truss',brand:'touring',x:2,z:2,rotation:0,mount:null,color:'#abcdef'},
-    {id:'light',kind:'spot',brand:'premium',x:2,z:2,rotation:0,mount:'truss',color:'#abcdef'},
-    {id:'sound',kind:'speaker',brand:'touring',x:1,z:3,rotation:0,mount:null,color:'#abcdef'})
+  design.parts.push({id:'truss',kind:'truss',brand:'touring',x:2,y:0,z:2,axis:'y',rotation:0,attachedTo:null,color:'#abcdef'},
+    {id:'light',kind:'spot',brand:'premium',x:3,y:0,z:2,rotation:0,attachedTo:'truss',color:'#abcdef'},
+    {id:'sound',kind:'speaker',brand:'touring',x:2,y:0,z:1,rotation:0,attachedTo:'truss',color:'#abcdef'})
   assert.equal(stageDesignIssue(design),null)
   const bad=structuredClone(design);bad.parts=bad.parts.filter(p=>p.kind!=='truss');assert.ok(stageDesignIssue(bad))
   const cost=stageStats(design).cost,money=bs.money
@@ -46,7 +46,7 @@ export function testStageTickets(fixture:(count?:number)=>GameState){
   const unchanged=bs.money
   assert.equal(build.manageFestival({type:'stageDesign',stageId:stage.id,design:expanded}).ok,false,'expansion needs a prepared foundation on every new cell')
   assert.equal(bs.money,unchanged);assert.deepEqual(stage.stageDesign,design)
-  const rotated=structuredClone(design);rotated.tileWidth=3;rotated.tileDepth=1;rotated.width=9;rotated.depth=3;rotated.parts.find(p=>p.id==='sound')!.z=2
+  const rotated=structuredClone(design);rotated.tileWidth=3;rotated.tileDepth=1;rotated.width=9;rotated.depth=3
   for(let x=6;x<9;x++)for(let z=-20;z<-17;z++){build.manageFestival({type:'ground',x,z,kind:'drain'});build.manageFestival({type:'ground',x,z,kind:'compact'})}
   stage.rotation=1
   assert.ok(build.manageFestival({type:'stageDesign',stageId:stage.id,design:rotated}).ok)

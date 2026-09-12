@@ -1,8 +1,15 @@
 import { Group, Mesh, BoxGeometry, ConeGeometry, SphereGeometry, BufferGeometry, Float32BufferAttribute, LineSegments, LineBasicMaterial, SpotLight, Vector3, Quaternion, DoubleSide, MeshStandardMaterial, MeshBasicMaterial, AdditiveBlending } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { isTruss, stageMotion, partHeight, mountOffset, mountDirection, type StageDesign, type StagePart, type ShowPhase } from '../game/stageDesign'
+import { isTruss, stageMotion, mountDirection, NEIGHBOR_STEPS, type StageDesign, type ShowPhase } from '../game/stageDesign'
 
 const unitX=new Vector3(1,0,0)
+/** For a truss's long axis, the two perpendicular unit vectors used to arrange its 3 chords. */
+const CROSS_AXES = {
+  x: [{x:0,y:1,z:0},{x:0,y:0,z:1}],
+  y: [{x:1,y:0,z:0},{x:0,y:0,z:1}],
+  z: [{x:1,y:0,z:0},{x:0,y:1,z:0}],
+} as const
+const ALONG_AXES = {x:{x:1,y:0,z:0},y:{x:0,y:1,z:0},z:{x:0,y:0,z:1}} as const
 export function createStageModel(d:StageDesign,options:{floor?:boolean;partIds?:Set<string>;effects?:boolean;lightBudget?:number}={}):Group {
   const root=new Group(), buckets=new Map<string,BufferGeometry[]>(), effects:Group[]=[]
   let origin: {x:number;z:number;rotation:number}|undefined
@@ -42,7 +49,7 @@ export function createStageModel(d:StageDesign,options:{floor?:boolean;partIds?:
   let lights=0
   const effect=(kind:string,x:number,y:number,z:number,color:string,dir:{x:number;y:number;z:number})=>{
     if(options.effects===false||effects.length>=32)return
-    const rig=new Group();rig.position.set(x,y,z);rig.userData.kind=kind;rig.userData.index=effects.length;rig.userData.dir=dir;rig.userData.rotation=origin?.rotation??0;rig.userData.base=rig.position.clone();rig.userData.length=kind==='laser'?Math.max(4,d.depth*.8):4
+    const rig=new Group();rig.position.set(x,y,z);rig.userData.kind=kind;rig.userData.index=effects.length;rig.userData.dir=dir;rig.userData.base=rig.position.clone();rig.userData.length=kind==='laser'?Math.max(4,d.depth*.8):4
     if(kind==='fireworks'||kind==='sparks'){
       const points:number[]=[]
       for(let n=0;n<40;n++){const angle=n*2.399963, height=(n+.5)/40, radius=Math.sqrt(1-height*height);points.push(radius*Math.cos(angle),height,radius*Math.sin(angle),radius*Math.cos(angle)*.87,height*.87,radius*Math.sin(angle)*.87)}
@@ -69,55 +76,45 @@ export function createStageModel(d:StageDesign,options:{floor?:boolean;partIds?:
   }
   for(const p of d.parts){
     if(options.partIds&&!options.partIds.has(p.id))continue
-    let x=p.x-d.width/2+.5,z=p.z-d.depth/2+.5,y=partHeight(d,p);const c=p.color
-    const truss:StagePart|undefined=p.mount?d.parts.find(t=>t.id===p.mount):undefined
-    if(truss){const off=mountOffset(truss,p.mountFace);x+=off.dx;y+=off.dy;z+=off.dz}
-    origin={x,z,rotation:truss?(truss.orientation==='vertical'?0:truss.rotation):p.rotation}
+    const x=p.x-d.width/2+.5,y=p.y+.5,z=p.z-d.depth/2+.5,c=p.color
+    const host=p.attachedTo?d.parts.find(t=>t.id===p.attachedTo):undefined
     if(isTruss(p.kind)){
-      const chordColor='#b6c5cf',braceColor='#8a9aab',r=.13
-      if(p.orientation==='vertical'){
-        const half=1.5,corners=[{dx:0,dz:r},{dx:-r*.87,dz:-r*.5},{dx:r*.87,dz:-r*.5}]
-        for(const corner of corners)strut(x+corner.dx,y+.02,z+corner.dz,x+corner.dx,y+half*2-.02,z+corner.dz,.045,chordColor)
-        const braces=5
-        for(let i=0;i<braces;i++){
-          const t0=.15+(i/braces)*(half*2-.3),t1=.15+((i+1)/braces)*(half*2-.3)
-          const c0=corners[i%3]!,c1=corners[(i+1)%3]!
-          strut(x+c0.dx,y+t0,z+c0.dz,x+c1.dx,y+t1,z+c1.dz,.035,braceColor)
-        }
-        if(d.parts.some(t=>t.kind==='truss'&&t.stackOn===p.id))box(x,y+half*2,z,.3,.3,.3,braceColor)
-      }else{
-        const half=.5,corners=[{dy:.22,dz:0},{dy:.04,dz:-r*.87},{dy:.04,dz:r*.87}]
-        for(const corner of corners)strut(x-half+.03,y+corner.dy,z+corner.dz,x+half-.03,y+corner.dy,z+corner.dz,.045,chordColor)
-        const braces=3
-        for(let i=0;i<braces;i++){
-          const t0=-half+.06+(i/braces)*(half*2-.12),t1=-half+.06+((i+1)/braces)*(half*2-.12)
-          const c0=corners[i%3]!,c1=corners[(i+1)%3]!
-          strut(x+t0,y+c0.dy,z+c0.dz,x+t1,y+c1.dy,z+c1.dz,.035,braceColor)
-        }
-        const support=p.stackOn?d.parts.find(q=>q.id===p.stackOn):undefined
-        if(support?.orientation==='vertical')box(x,y+.04,z,.3,.3,.3,braceColor)
-        const axisX=p.rotation%2===0
-        for(const side of [-1,1]){
-          const nx=axisX?p.x:p.x+side,nz=axisX?p.z+side:p.z
-          const neighbor=d.parts.find(t=>t.kind==='truss'&&t.x===nx&&t.z===nz&&Math.abs(partHeight(d,t)-y)<.05)
-          if(neighbor){const savedOrigin:typeof origin=origin;origin=undefined;box(x+(nx-p.x)/2,y+.13,z+(nz-p.z)/2,.28,.28,.28,braceColor);origin=savedOrigin}
-        }
+      origin=undefined
+      const axis=p.axis??'y',along=ALONG_AXES[axis],[ca,cb]=CROSS_AXES[axis]
+      const pt=(t:number,a:number,b:number)=>({x:x+along.x*t+ca.x*a+cb.x*b,y:y+along.y*t+ca.y*a+cb.y*b,z:z+along.z*t+ca.z*a+cb.z*b})
+      const chordColor='#b6c5cf',braceColor='#8a9aab',r=.13,half=.47
+      const corners=[{a:0,b:r},{a:-r*.87,b:-r*.5},{a:r*.87,b:-r*.5}]
+      for(const corner of corners){const p1=pt(-half,corner.a,corner.b),p2=pt(half,corner.a,corner.b);strut(p1.x,p1.y,p1.z,p2.x,p2.y,p2.z,.045,chordColor)}
+      const braces=3
+      for(let i=0;i<braces;i++){
+        const t0=-half+(i/braces)*(half*2),t1=-half+((i+1)/braces)*(half*2)
+        const c0=corners[i%3]!,c1=corners[(i+1)%3]!
+        const p1=pt(t0,c0.a,c0.b),p2=pt(t1,c1.a,c1.b)
+        strut(p1.x,p1.y,p1.z,p2.x,p2.y,p2.z,.035,braceColor)
       }
-    }else if(p.kind==='speaker'){
-      box(x,y+.4,z,.65,.8,.5,'#171d28');for(const yy of [.2,.55]){box(x,y+yy,z+.26,.43,.25,.04,'#414859');box(x,y+yy,z+.29,.18,.12,.02,c)}
-    }else if(p.kind==='spot'||p.kind==='laser'){
-      box(x,y+.15,z,.45,.3,.42,'#17202d');box(x,y+.33,z,.27,.08,.3,c);effect(p.kind,x,y+.38,z,c,mountDirection(truss,p.mountFace))
-    }else if(p.kind==='fireworks'||p.kind==='sparks'){
-      box(x,y+.15,z,.65,.3,.65,'#303847');for(const dx of [-.18,.18])box(x+dx,y+.38,z,.13,.25,.13,c);effect(p.kind,x,y+.5,z,c,{x:0,y:1,z:0})
-    }else if(p.kind==='fog'){
-      box(x,y+.15,z,.6,.3,.4,'#727789');box(x,y+.18,z+.24,.2,.12,.1,c);effect('fog',x,y+.1,z,'#b9cbd6',{x:0,y:1,z:0})
-    }else if(p.kind==='screen'||p.kind==='banner'){
-      box(x,y+.6,z,.9,1.2,.1,'#141c29');for(let a=0;a<5;a++)for(let b=0;b<6;b++)box(x+(a-2)*.16,y+.15+b*.17,z+.07,.14,.14,.03,(a+b)%3?c:'#f3dfb0')
-    }else if(p.kind==='star'){
-      box(x,y+.4,z,.75,.22,.18,c);box(x,y+.4,z,.22,.8,.18,c);box(x,y+.4,z,.44,.44,.2,'#ffdd87')
-    }else if(p.kind==='palm'){
-      box(x,y+.6,z,.15,1.2,.15,'#9c7353');box(x,y+1.2,z,1,.15,.3,c);box(x,y+1.3,z,.3,.15,1,c)
-    }else box(x,y+.12,z,.92,.24,.92,c)
+      for(const step of NEIGHBOR_STEPS){
+        const neighbor=d.parts.some(t=>isTruss(t.kind)&&t.x===p.x+step.x&&t.y===p.y+step.y&&t.z===p.z+step.z)
+        if(neighbor)box(x+step.x*.5,y+step.y*.5,z+step.z*.5,.26,.26,.26,braceColor)
+      }
+    }else{
+      origin={x,z,rotation:p.rotation}
+      const dir=mountDirection(p,host)
+      if(p.kind==='speaker'){
+        box(x,y+.4,z,.65,.8,.5,'#171d28');for(const yy of [.2,.55]){box(x,y+yy,z+.26,.43,.25,.04,'#414859');box(x,y+yy,z+.29,.18,.12,.02,c)}
+      }else if(p.kind==='spot'||p.kind==='laser'){
+        box(x,y+.15,z,.45,.3,.42,'#17202d');box(x,y+.33,z,.27,.08,.3,c);effect(p.kind,x,y+.38,z,c,dir)
+      }else if(p.kind==='fireworks'||p.kind==='sparks'){
+        box(x,y+.15,z,.65,.3,.65,'#303847');for(const dx of [-.18,.18])box(x+dx,y+.38,z,.13,.25,.13,c);effect(p.kind,x,y+.5,z,c,{x:0,y:1,z:0})
+      }else if(p.kind==='fog'){
+        box(x,y+.15,z,.6,.3,.4,'#727789');box(x,y+.18,z+.24,.2,.12,.1,c);effect('fog',x,y+.1,z,'#b9cbd6',{x:0,y:1,z:0})
+      }else if(p.kind==='screen'||p.kind==='banner'){
+        box(x,y+.6,z,.9,1.2,.1,'#141c29');for(let a=0;a<5;a++)for(let b=0;b<6;b++)box(x+(a-2)*.16,y+.15+b*.17,z+.07,.14,.14,.03,(a+b)%3?c:'#f3dfb0')
+      }else if(p.kind==='star'){
+        box(x,y+.4,z,.75,.22,.18,c);box(x,y+.4,z,.22,.8,.18,c);box(x,y+.4,z,.44,.44,.2,'#ffdd87')
+      }else if(p.kind==='palm'){
+        box(x,y+.6,z,.15,1.2,.15,'#9c7353');box(x,y+1.2,z,1,.15,.3,c);box(x,y+1.3,z,.3,.15,1,c)
+      }else box(x,y+.12,z,.92,.24,.92,c)
+    }
   }
   for(const [color,geometries] of buckets){const merged=mergeGeometries(geometries);geometries.forEach(g=>g.dispose());if(merged){const mesh=new Mesh(merged,new MeshStandardMaterial({color,roughness:.85,flatShading:true}));mesh.receiveShadow=true;root.add(mesh)}}
   root.userData.effects=effects
@@ -143,7 +140,7 @@ export function animateStageModel(root:Group,phase:ShowPhase,time:number,active:
       rig.children.forEach((child,n)=>{const mesh=child as Mesh,mat=mesh.material as MeshBasicMaterial;mat.opacity=phase.fog/100*(.065+Math.sin(t*.25+n)*.015);mesh.position.y=.12+n*.18+Math.sin(t*.3+n)*.08;mesh.rotation.y=Math.sin(t*.1+n)*.12})
     }else{
       const base=(rig.userData.dir as {x:number;y:number;z:number}|undefined)??{x:0,y:1,z:0}
-      const direction=new Vector3(base.x+Math.sin(t)*.15,base.y+Math.cos(t*.83)*.15,base.z+Math.cos(t*.7)*.15).normalize().applyAxisAngle(up,rig.userData.rotation*Math.PI/2)
+      const direction=new Vector3(base.x+Math.sin(t)*.15,base.y+Math.cos(t*.83)*.15,base.z+Math.cos(t*.7)*.15).normalize()
       rig.quaternion.setFromUnitVectors(up,direction)
       for(const child of rig.children){const mat=(child as Mesh).material as MeshBasicMaterial;mat.color.set(phase.color);mat.opacity=phase.intensity/100*(rig.userData.kind==='laser'?.8:.035+phase.fog*.001)}
     }
