@@ -1,6 +1,6 @@
 import { GENRES } from './game/musicTaste'
 import { isScenery, scenerySlot, isEdgeScenery } from './game/scenery'
-import { makeDraggable } from './dragPanel'
+import { makeDraggable, makeResizable } from './dragPanel'
 import { mountStageEditor } from './stageEditor'
 import { stageStats } from './game/stageDesign'
 import { mountStaffDetails } from './staffDetailsUI'
@@ -93,7 +93,7 @@ app.innerHTML = `
       <div class="brand">
         <span class="brand-mark">F</span>
         <div><strong>Festival Tycoon</strong><small>Prototype 0.1</small></div>
-        <button id="toggle-scenario" class="scenario-toggle" aria-expanded="false">Szenario ▾</button>
+        <button id="toggle-scenario" class="scenario-toggle" aria-expanded="false">⚙️ Szenario</button>
   </div>
       <div class="stats">
         <span>💰 <strong id="money">0 €</strong></span>
@@ -110,7 +110,7 @@ app.innerHTML = `
           <button id="open-info">🔎 Info</button>
           <button id="open-build-menu" aria-expanded="false">🏗️ Bauen</button>
           <div class="dropdown-menu">
-            <button id="toggle-bulldoze-menu" aria-expanded="false">🚜 Abriss ▾</button>
+            <button id="toggle-bulldoze-menu" aria-expanded="false">🚜 Abriss</button>
             <div id="bulldoze-menu-panel" class="bulldoze-panel panel">
               <div class="bulldoze-panel-header panel-header">
                 <span class="panel-drag-line" aria-hidden="true"></span>
@@ -158,6 +158,7 @@ app.innerHTML = `
             <button id="toggle-save-menu" aria-expanded="false" aria-haspopup="true">💾 Spielstand ▾</button>
             <div id="save-menu-panel" class="dropdown-menu-panel panel">
               <button id="save">💾 Schnell speichern</button>
+              <button id="save-as" title="Spielstand benennen oder einen vorhandenen überschreiben">💾 Speichern unter …</button>
               <button id="load">📂 Schnell laden</button>
               <button id="save-slots" title="Lokale Spielstände verwalten">🗂️ Spielstände verwalten</button>
               <button id="copy-save" title="Spielstand als Base64 kopieren">⧉ Als Text kopieren</button>
@@ -168,7 +169,12 @@ app.innerHTML = `
       </div>
     </header>
     <aside id="scenario-panel" class="scenario-panel panel" hidden>
-      <h2>Szenario</h2>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Szenario</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-scenario" class="panel-close-button" aria-label="Szenario schließen">×</button>
+      </div>
       <p class="scenario-hint">Diese Werte gelten für ein neues Spiel und werden mitgespeichert.</p>
       <label class="scenario-field"><span>Umgebung</span><select id="scenario-environment">${Object.entries(ENVIRONMENTS).map(([id, e]) => `<option value="${id}">${e.name}</option>`).join('')}</select></label>
       <p id="scenario-ground-details" class="scenario-hint"></p>
@@ -218,7 +224,10 @@ app.innerHTML = `
       <p class="scenario-hint">
         Der Host rechnet die Simulation. Andere Spieler bauen im selben Park mit.
       </p>
-      <p id="multiplayer-status">Nicht verbunden</p>
+      <div class="multiplayer-status-badge" id="multiplayer-status-badge" data-state="solo">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="multiplayer-status">Singleplayer</span>
+      </div>
       <label class="scenario-field">
         <span>Name</span>
         <input id="multiplayer-name" type="text" maxlength="24" placeholder="Dein Name" />
@@ -240,6 +249,30 @@ app.innerHTML = `
         <ul id="multiplayer-players"></ul>
         <button id="multiplayer-leave" type="button">Trennen</button>
       </div>
+    </aside>
+    <aside id="save-as-panel" class="save-as-panel panel" hidden>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Spielstand speichern</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-save-as" class="panel-close-button" aria-label="Speichern schließen">×</button>
+      </div>
+      <p class="scenario-hint" data-save-as-storage>Spielstände werden geladen …</p>
+      <form data-save-as class="save-as-form"><label class="scenario-field"><span>Name</span><input name="name" type="text" maxlength="40" placeholder="z. B. Samstagabend" required></label><button>Speichern</button></form>
+      <p class="save-slots-message" role="status" data-save-as-message></p>
+      <div class="save-slots-list" data-save-as-list></div>
+    </aside>
+    <aside id="save-slots-panel" class="save-slots-panel panel" hidden>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title">Lokale Spielstände</h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button data-close class="panel-close-button" aria-label="Spielstände schließen">×</button>
+      </div>
+      <p class="scenario-hint" data-save-storage>Spielstände werden geladen …</p>
+      <form data-save-slot class="save-as-form"><label class="scenario-field"><span>Name</span><input name="name" type="text" maxlength="40" placeholder="z. B. Samstagabend" required></label><button>Neuen Spielstand speichern</button></form>
+      <p class="save-slots-message" role="status"></p>
+      <div class="save-slots-list"></div>
     </aside>
     <aside id="build-menu" class="build-menu panel" aria-label="Bauwerkzeuge" hidden>
       <div class="build-menu-header panel-header">
@@ -515,12 +548,14 @@ app.innerHTML = `
         <div><label><span>🎪 Festivallust</span><b id="motivation-value">100%</b></label><i><u id="motivation-bar"></u></i></div>
       </div>
     </aside>
-    <aside id="entity-panel" class="visitor-panel entity-panel panel" aria-label="Objektinformationen">
-      <div class="visitor-title">
-        <span id="entity-icon" class="visitor-avatar">🏗️</span>
-        <div><small id="entity-type">Objekt</small><strong id="entity-name">–</strong></div>
-        <button id="close-entity" aria-label="Fenster schließen">×</button>
+    <aside id="entity-panel" class="entity-panel panel" aria-label="Objektinformationen" hidden>
+      <div class="panel-header">
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <h2 class="panel-header-title"><span id="entity-icon">🏗️</span> <span id="entity-name">–</span></h2>
+        <span class="panel-drag-line" aria-hidden="true"></span>
+        <button id="close-entity" class="panel-close-button" aria-label="Fenster schließen">×</button>
       </div>
+      <p class="scenario-hint" id="entity-type">Objekt</p>
       <nav id="entity-tabs" class="entity-tabs">
         <button data-entity-tab="overview" class="active">Übersicht</button>
         <button data-entity-tab="dynamics">Fahrdynamik</button>
@@ -955,6 +990,7 @@ const complaintsList = requireElement<HTMLElement>('#complaints-list')
 const logisticsPanel = requireElement<HTMLElement>('#logistics-panel')
 for (const panel of [staffPanel, visitorOverviewPanel, dayPlanPanel, complaintsPanel, logisticsPanel]) {
   makeDraggable(panel.querySelector<HTMLElement>('.panel-header')!, panel)
+  makeResizable(panel)
 }
 const logisticsOverview = requireElement<HTMLElement>('#logistics-overview')
 const logisticsRoutes = requireElement<HTMLElement>('#logistics-routes')
@@ -979,6 +1015,7 @@ const visitorPageLabel = requireElement<HTMLElement>('#visitor-page-label')
 const followVisitorButton = requireElement<HTMLButtonElement>('#follow-visitor')
 const multiplayerToggle = requireElement<HTMLButtonElement>('#toggle-multiplayer')
 const multiplayerPanel = requireElement<HTMLElement>('#multiplayer-panel')
+const multiplayerStatusBadge = requireElement<HTMLElement>('#multiplayer-status-badge')
 const multiplayerStatus = requireElement<HTMLElement>('#multiplayer-status')
 const multiplayerName = requireElement<HTMLInputElement>('#multiplayer-name')
 const multiplayerCode = requireElement<HTMLInputElement>('#multiplayer-code')
@@ -1163,7 +1200,7 @@ function bindGameState(nextGame: GameState): void {
     }[festivalPhase.phase]
     date.textContent = snapshot.festival.planning ? 'Planung · Festival noch nicht gestartet' :
       `${dayPhaseIcon} Tag ${snapshot.day} · ${festivalPhaseLabel} ${festivalPhase.phaseDay}/${festivalPhase.phaseLength} · ${formatTime(snapshot.minute)}`
-    toggleParkButton.textContent = snapshot.parkOpen ? '🔓 Park schließen' : snapshot.festival.planning || snapshot.festival.finished ? '🔒 Park geschlossen' : '🔒 Park öffnen'
+    toggleParkButton.textContent = snapshot.parkOpen ? '🔓 Park schließen' : snapshot.festival.planning || snapshot.festival.finished ? '🔒 Gelände eröffnen' : '🔒 Park öffnen'
     toggleParkButton.disabled = Boolean(snapshot.festival.planning || snapshot.festival.finished)
     toggleParkButton.title = toggleParkButton.disabled ? 'Start über das Festivalmenü' : ''
     toggleParkButton.classList.toggle('park-closed', !snapshot.parkOpen)
@@ -1283,13 +1320,13 @@ function updateStaffPanel(): void {
     const members = game.snapshot.staff.filter((member) => member.role === role)
     const working = members.filter((member) => member.state !== 'patrolling').length
     return `<section>
-      <div><span>${definition.icon}</span><strong>${definition.name}</strong><b>${members.length}</b></div>
+      <div><span>${definition.icon}</span><strong>${definition.name}</strong><b>${members.length} · ${formatMoney(members.length * definition.hourlyWage)}/h</b></div>
       <small>${working} im Einsatz · ${formatMoney(definition.hourlyWage)}/h je Person</small>
       <div class="staff-actions">
         <button data-hire-staff="${role}">Einstellen · ${formatMoney(definition.hireCost)}</button>
         <button data-fire-staff="${role}" ${members.length === 0 ? 'disabled' : ''}>Entlassen</button>
       </div>
-      ${members.map(member => `<button data-inspect-staff="${member.id}">${escapeHtml(member.name)}</button>`).join('')}
+      ${members.length ? `<hr class="staff-divider"><div class="staff-members">${members.map(member => `<button data-inspect-staff="${member.id}">${escapeHtml(member.name)}</button>`).join('')}</div>` : ''}
     </section>`
   }).join('')
 }
@@ -2675,7 +2712,7 @@ function selectVisitor(visitorId: string): void {
     view.followVisitor(visitorId)
   }
   selectedEntity = null
-  entityPanel.classList.remove('visible')
+  entityPanel.hidden = true
   visitorPanel.classList.add('visible')
   updateVisitorPanel()
 }
@@ -2928,7 +2965,7 @@ function openEntityInfoForBuilding(buildingId: string): void {
   followedVisitorId = null
   view.followVisitor(null)
   visitorPanel.classList.remove('visible')
-  entityPanel.classList.add('visible')
+  entityPanel.hidden = false
   updateEntityPanel()
 }
 
@@ -2940,7 +2977,7 @@ function openEntityInfoForCoaster(coasterId: string): void {
   followedVisitorId = null
   view.followVisitor(null)
   visitorPanel.classList.remove('visible')
-  entityPanel.classList.add('visible')
+  entityPanel.hidden = false
   updateEntityPanel()
 }
 
@@ -3285,7 +3322,7 @@ function drawTelemetryChart(coaster: Coaster): void {
 function closeEntityPanel(): void {
   if (rideAccessPlacement) cancelRideAccessPlacement()
   selectedEntity = null
-  entityPanel.classList.remove('visible')
+  entityPanel.hidden = true
 }
 
 function showToast(message: string, isError = false): void {
@@ -3466,10 +3503,9 @@ const bulldozeSizeButtons = Array.from(
   document.querySelectorAll<HTMLButtonElement>('[data-bulldoze-size]'),
 )
 makeDraggable(requireElement<HTMLElement>('.build-menu-header'), buildMenuPanel)
-const bulldozeMenuWasDragged = makeDraggable(
-  requireElement<HTMLElement>('.bulldoze-panel-header'),
-  bulldozeMenuPanel,
-)
+makeResizable(buildMenuPanel)
+makeDraggable(requireElement<HTMLElement>('.bulldoze-panel-header'), bulldozeMenuPanel)
+makeResizable(bulldozeMenuPanel)
 
 const activateInfoIfNothingOpen = (): void => {
   if (buildMenuPanel.hidden && !bulldozeMenuPanel.classList.contains('open')) {
@@ -3514,7 +3550,6 @@ bulldozeMenuToggle.addEventListener('click', () => {
   closeBuildMenu()
   bulldozeMenuPanel.classList.add('open')
   bulldozeMenuToggle.setAttribute('aria-expanded', 'true')
-  if (!bulldozeMenuWasDragged()) positionDropdownPanel(bulldozeMenuToggle, bulldozeMenuPanel, 220)
   game.setTool('bulldoze')
 })
 requireElement<HTMLButtonElement>('[data-close-bulldoze-menu]').addEventListener('click', () => {
@@ -3531,9 +3566,6 @@ bulldozeSizeButtons.forEach((button) => {
 window.addEventListener('resize', () => {
   if (debugMenuPanel.classList.contains('open')) positionDropdownPanel(debugMenuToggle, debugMenuPanel)
   if (saveMenuPanel.classList.contains('open')) positionDropdownPanel(saveMenuToggle, saveMenuPanel)
-  if (bulldozeMenuPanel.classList.contains('open') && !bulldozeMenuWasDragged()) {
-    positionDropdownPanel(bulldozeMenuToggle, bulldozeMenuPanel, 220)
-  }
 })
 requireElement<HTMLButtonElement>('#debug-remove-cars').addEventListener(
   'click',
@@ -3627,7 +3659,10 @@ function readMultiplayerName(): string {
 
 function renderMultiplayerStatus(status: MultiplayerStatus): void {
   const connected = status.connected
-  multiplayerStatus.textContent = status.message || 'Nicht verbunden'
+  multiplayerStatusBadge.dataset.state = connected ? 'online' : status.message ? 'disconnected' : 'solo'
+  multiplayerStatus.textContent = connected
+    ? `Online · ${status.mode === 'host' ? 'Host' : 'Verbunden'} · Raum ${status.code}`
+    : status.message || 'Singleplayer'
   multiplayerToggle.textContent = connected
     ? status.mode === 'host'
       ? `🌐 Host ${status.code}`
@@ -3667,6 +3702,7 @@ requireElement<HTMLButtonElement>('#close-multiplayer').addEventListener('click'
   setMultiplayerPanelOpen(false)
 })
 makeDraggable(multiplayerPanel.querySelector<HTMLElement>('.panel-header')!, multiplayerPanel)
+makeResizable(multiplayerPanel)
 multiplayerHostButton.addEventListener('click', () => {
   multiplayer.host(readMultiplayerName())
   showToast('Verbinde als Host…')
@@ -3708,6 +3744,11 @@ multiplayerCopyButton.addEventListener('click', async () => {
 scenarioToggle.addEventListener('click', () => {
   setScenarioPanelOpen(scenarioPanel.hasAttribute('hidden'))
 })
+requireElement<HTMLButtonElement>('#close-scenario').addEventListener('click', () => {
+  setScenarioPanelOpen(false)
+})
+makeDraggable(scenarioPanel.querySelector<HTMLElement>('.panel-header')!, scenarioPanel)
+makeResizable(scenarioPanel)
 requireElement<HTMLButtonElement>('#start-scenario').addEventListener(
   'click',
   () => {
@@ -4094,14 +4135,23 @@ document.querySelector<HTMLButtonElement>('#save')?.addEventListener('click', ()
   showToast(game.save().message)
 })
 
-const saveSlotsDialog = document.createElement('dialog')
-saveSlotsDialog.className = 'save-slots-dialog'
-saveSlotsDialog.innerHTML = `<header><div><h2>Lokale Spielstände</h2><p data-save-storage>Spielstände werden geladen …</p></div><button data-close aria-label="Spielstände schließen">×</button></header><form data-save-slot><label>Name<input name="name" maxlength="40" placeholder="z. B. Samstagabend" required></label><button>Neuen Spielstand speichern</button></form><p class="save-slots-message" role="status"></p><div class="save-slots-list"></div>`
-document.body.append(saveSlotsDialog)
-const saveSlotsList = saveSlotsDialog.querySelector<HTMLElement>('.save-slots-list')!
-const saveSlotsMessage = saveSlotsDialog.querySelector<HTMLElement>('.save-slots-message')!
-const saveStorageInfo = saveSlotsDialog.querySelector<HTMLElement>('[data-save-storage]')!
-const saveSlotName = saveSlotsDialog.querySelector<HTMLInputElement>('[name=name]')!
+const saveSlotsPanel = requireElement<HTMLElement>('#save-slots-panel')
+const saveSlotsList = saveSlotsPanel.querySelector<HTMLElement>('.save-slots-list')!
+const saveSlotsMessage = saveSlotsPanel.querySelector<HTMLElement>('.save-slots-message')!
+const saveStorageInfo = saveSlotsPanel.querySelector<HTMLElement>('[data-save-storage]')!
+const saveSlotName = saveSlotsPanel.querySelector<HTMLInputElement>('[name=name]')!
+makeDraggable(saveSlotsPanel.querySelector<HTMLElement>('.panel-header')!, saveSlotsPanel)
+makeResizable(saveSlotsPanel)
+let saveSlotsPausedSpeed = 0
+function setSaveSlotsPanelOpen(open: boolean): void {
+  saveSlotsPanel.hidden = !open
+  if (open) {
+    saveSlotsPausedSpeed = game.snapshot.speed
+    if (saveSlotsPausedSpeed !== 0) game.setSpeed(0)
+  } else if (saveSlotsPausedSpeed !== 0) {
+    game.setSpeed(saveSlotsPausedSpeed)
+  }
+}
 const formatSaveTime = (value: number) => new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' }).format(value)
 let serverSaveSlots: ServerSaveSlot[] | null = null
 function bindLoadedGame(loaded: GameState, message: string): void {
@@ -4115,27 +4165,32 @@ function showSaveSlots(slots: ServerSaveSlot[], onServer: boolean): void {
     ? slots.map(slot => `<article data-slot="${slot.id}"><div><strong>${escapeHtml(slot.name)}</strong><small>${formatSaveTime(slot.savedAt)}</small></div><div><button data-load-slot="${slot.id}">Laden</button><button data-overwrite-slot="${slot.id}">Überschreiben</button><button data-delete-slot="${slot.id}" aria-label="${escapeHtml(slot.name)} löschen">×</button></div></article>`).join('')
     : `<p class="save-slots-empty">Noch keine benannten Spielstände ${onServer ? 'auf dem lokalen Server' : 'im Browser'}. Der Button „Speichern“ bleibt der schnelle Einzelspielstand.</p>`
 }
-async function renderSaveSlots(): Promise<void> {
+async function fetchSaveSlots(): Promise<{ slots: ServerSaveSlot[], onServer: boolean }> {
   try {
     serverSaveSlots = await listServerSaves()
-    saveStorageInfo.textContent = 'Bis zu 20 Spielstände liegen lokal im Ordner „saves“ des Spielservers.'
-    showSaveSlots(serverSaveSlots, true)
+    return { slots: serverSaveSlots, onServer: true }
   } catch {
     serverSaveSlots = null
-    saveStorageInfo.textContent = 'Der Spielserver ist nicht erreichbar. Bis zu 20 Spielstände werden stattdessen in diesem Browser gespeichert.'
-    showSaveSlots(GameState.listSaveSlots(), false)
+    return { slots: GameState.listSaveSlots(), onServer: false }
   }
+}
+async function renderSaveSlots(): Promise<void> {
+  const { slots, onServer } = await fetchSaveSlots()
+  saveStorageInfo.textContent = onServer
+    ? 'Bis zu 20 Spielstände liegen lokal im Ordner „saves“ des Spielservers.'
+    : 'Der Spielserver ist nicht erreichbar. Bis zu 20 Spielstände werden stattdessen in diesem Browser gespeichert.'
+  showSaveSlots(slots, onServer)
 }
 async function openSaveSlots(): Promise<void> {
   if (multiplayer.status.mode === 'client') { showToast('Nur der Host kann Spielstände verwalten', true); return }
   saveSlotsMessage.textContent = ''
   saveSlotName.value = ''
-  saveSlotsDialog.showModal()
+  setSaveSlotsPanelOpen(true)
   await renderSaveSlots()
   saveSlotName.focus()
 }
-saveSlotsDialog.querySelector('[data-close]')!.addEventListener('click', () => saveSlotsDialog.close())
-saveSlotsDialog.querySelector<HTMLFormElement>('[data-save-slot]')!.addEventListener('submit', async event => {
+saveSlotsPanel.querySelector('[data-close]')!.addEventListener('click', () => setSaveSlotsPanelOpen(false))
+saveSlotsPanel.querySelector<HTMLFormElement>('[data-save-slot]')!.addEventListener('submit', async event => {
   event.preventDefault()
   try {
     if (serverSaveSlots) {
@@ -4150,7 +4205,7 @@ saveSlotsDialog.querySelector<HTMLFormElement>('[data-save-slot]')!.addEventList
     await renderSaveSlots()
   } catch (error) { saveSlotsMessage.textContent = error instanceof Error ? error.message : 'Spielstand konnte nicht gespeichert werden' }
 })
-saveSlotsDialog.addEventListener('click', async event => {
+saveSlotsPanel.addEventListener('click', async event => {
   const button = (event.target as Element).closest<HTMLButtonElement>('[data-load-slot],[data-overwrite-slot],[data-delete-slot]')
   if (!button) return
   const id = button.dataset.loadSlot ?? button.dataset.overwriteSlot ?? button.dataset.deleteSlot!
@@ -4159,7 +4214,7 @@ saveSlotsDialog.addEventListener('click', async event => {
     try { loaded = serverSaveSlots ? GameState.fromJSON((await loadServerSave(id)).snapshot) : GameState.loadSlot(id) } catch { loaded = null }
     if (!loaded) { saveSlotsMessage.textContent = 'Dieser Spielstand ist ungültig oder nicht mehr vorhanden.'; renderSaveSlots(); return }
     bindLoadedGame(loaded, 'Lokaler Spielstand geladen')
-    saveSlotsDialog.close()
+    setSaveSlotsPanelOpen(false)
     return
   }
   if (button.dataset.overwriteSlot) {
@@ -4184,6 +4239,70 @@ saveSlotsDialog.addEventListener('click', async event => {
   } catch (error) { saveSlotsMessage.textContent = error instanceof Error ? error.message : 'Spielstand konnte nicht gelöscht werden' }
 })
 document.querySelector<HTMLButtonElement>('#save-slots')?.addEventListener('click', openSaveSlots)
+
+const saveAsPanel = requireElement<HTMLElement>('#save-as-panel')
+const saveAsList = saveAsPanel.querySelector<HTMLElement>('[data-save-as-list]')!
+const saveAsMessage = saveAsPanel.querySelector<HTMLElement>('[data-save-as-message]')!
+const saveAsStorageInfo = saveAsPanel.querySelector<HTMLElement>('[data-save-as-storage]')!
+const saveAsName = saveAsPanel.querySelector<HTMLInputElement>('[name=name]')!
+let saveAsPausedSpeed = 0
+function setSaveAsPanelOpen(open: boolean): void {
+  saveAsPanel.hidden = !open
+  if (open) {
+    saveAsPausedSpeed = game.snapshot.speed
+    if (saveAsPausedSpeed !== 0) game.setSpeed(0)
+  } else if (saveAsPausedSpeed !== 0) {
+    game.setSpeed(saveAsPausedSpeed)
+  }
+}
+async function renderSaveAsSlots(): Promise<void> {
+  const { slots, onServer } = await fetchSaveSlots()
+  saveAsStorageInfo.textContent = onServer
+    ? 'Bis zu 20 Spielstände liegen lokal im Ordner „saves“ des Spielservers.'
+    : 'Der Spielserver ist nicht erreichbar. Bis zu 20 Spielstände werden stattdessen in diesem Browser gespeichert.'
+  saveAsList.innerHTML = slots.length
+    ? slots.map(slot => `<article data-slot="${slot.id}"><div><strong>${escapeHtml(slot.name)}</strong><small>${formatSaveTime(slot.savedAt)}</small></div><div><button data-overwrite-slot="${slot.id}">Überschreiben</button></div></article>`).join('')
+    : `<p class="save-slots-empty">Noch keine benannten Spielstände ${onServer ? 'auf dem lokalen Server' : 'im Browser'}.</p>`
+}
+async function openSaveAs(): Promise<void> {
+  if (multiplayer.status.mode === 'client') { showToast('Nur der Host kann Spielstände verwalten', true); return }
+  saveAsMessage.textContent = ''
+  saveAsName.value = ''
+  setSaveAsPanelOpen(true)
+  await renderSaveAsSlots()
+  saveAsName.focus()
+}
+requireElement<HTMLButtonElement>('#close-save-as').addEventListener('click', () => setSaveAsPanelOpen(false))
+makeDraggable(saveAsPanel.querySelector<HTMLElement>('.panel-header')!, saveAsPanel)
+makeResizable(saveAsPanel)
+saveAsPanel.querySelector<HTMLFormElement>('[data-save-as]')!.addEventListener('submit', async event => {
+  event.preventDefault()
+  try {
+    if (serverSaveSlots) {
+      const saved = await saveServerSave(saveAsName.value, JSON.stringify(game.snapshot))
+      saveAsMessage.textContent = `Spielstand „${saved.name}“ auf dem lokalen Server gespeichert`
+    } else {
+      const result = game.saveSlot(saveAsName.value)
+      saveAsMessage.textContent = result.message
+      if (!result.ok) return
+    }
+    saveAsName.value = ''
+    await renderSaveAsSlots()
+  } catch (error) { saveAsMessage.textContent = error instanceof Error ? error.message : 'Spielstand konnte nicht gespeichert werden' }
+})
+saveAsPanel.addEventListener('click', async event => {
+  const button = (event.target as Element).closest<HTMLButtonElement>('[data-overwrite-slot]'); if (!button) return
+  const id = button.dataset.overwriteSlot!
+  const slot = (serverSaveSlots ?? GameState.listSaveSlots()).find(item => item.id === id)
+  if (!slot) { renderSaveAsSlots(); return }
+  try {
+    if (serverSaveSlots) await saveServerSave(slot.name, JSON.stringify(game.snapshot), id)
+    else { const result = game.saveSlot(slot.name, id); if (!result.ok) throw new Error(result.message) }
+    saveAsMessage.textContent = `Spielstand „${slot.name}“ überschrieben`
+    await renderSaveAsSlots()
+  } catch (error) { saveAsMessage.textContent = error instanceof Error ? error.message : 'Spielstand konnte nicht überschrieben werden' }
+})
+document.querySelector<HTMLButtonElement>('#save-as')?.addEventListener('click', openSaveAs)
 
 const saveTextDialog = document.createElement('dialog')
 saveTextDialog.className = 'save-text-dialog'
@@ -4268,6 +4387,8 @@ followVisitorButton.addEventListener('click', () => {
 document.querySelector<HTMLButtonElement>('#close-entity')?.addEventListener('click', () => {
   closeEntityPanel()
 })
+makeDraggable(entityPanel.querySelector<HTMLElement>('.panel-header')!, entityPanel)
+makeResizable(entityPanel)
 
 document.querySelectorAll<HTMLButtonElement>('[data-entity-tab]').forEach((button) => {
   button.addEventListener('click', () => {
