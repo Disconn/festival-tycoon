@@ -6,6 +6,8 @@ import { SIMULATION_CONFIG } from './simulationConfig'
 export type SecurityGateConfig = {
   thoroughness: number
   prohibitedItems: InventoryItemKind[]
+  /** Relative visitor-flow share used when several entrances lead into an area. */
+  flowShare: number
 }
 
 export type SecurityInspection = {
@@ -17,6 +19,7 @@ export type SecurityInspection = {
 
 export const DEFAULT_SECURITY_CONFIG: SecurityGateConfig = {
   thoroughness: SIMULATION_CONFIG.security.defaultThoroughness,
+  flowShare: 1,
   prohibitedItems: Object.values(INVENTORY_ITEMS)
     .filter((item) => item.prohibitedByDefault)
     .map((item) => item.kind),

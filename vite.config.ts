@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite'
 import { festivalMultiplayer } from './server/wsPlugin.ts'
 import { festivalVersion } from './server/versionPlugin.ts'
-import { readFileSync } from 'node:fs'
+import packageInfo from './package.json' with { type: 'json' }
 
-const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+// A tracked dependency also restarts Vite after version bumps; readFileSync did not.
+const { version } = packageInfo
 const buildId = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
 
 export default defineConfig({

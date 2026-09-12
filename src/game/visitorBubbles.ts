@@ -9,6 +9,7 @@ type BubbleVisitor = {
   crowding: number
   crowdStress: number
   isPanicking: boolean
+  localPartyMood: number
 }
 
 export type VisitorBubbleKind =
@@ -39,12 +40,21 @@ export function isVeryUnhappy(visitor: Pick<BubbleVisitor, 'emotion'>): boolean 
 export function visitorBubbleKind(visitor: BubbleVisitor): VisitorBubbleKind | null {
   const crowd = SIMULATION_CONFIG.crowding
   if (visitor.isPanicking || visitor.state === 'panicking') return 'panic'
-  if (visitor.crowdStress >= crowd.crushStress || visitor.crowding >= crowd.crushThreshold) {
+  const dramaticCrowding =
+    visitor.crowding >= crowd.crushThreshold &&
+    visitor.crowdStress >= crowd.crushStress
+  if (dramaticCrowding) {
     return 'crushed'
   }
   if (visitor.state === 'sleeping') return 'sleeping'
   if (visitor.state === 'socializing' || visitor.isConversing) return 'talking'
   if (visitor.isDancing || visitor.state === 'partying') return 'dancing'
+  const enjoyingFestival =
+    visitor.crowding >= crowd.pressureStart &&
+    visitor.needs.fun >= 85 &&
+    visitor.localPartyMood >= 70 &&
+    !['vomiting', 'injured', 'medical', 'medical-transport', 'leaving'].includes(visitor.state)
+  if (enjoyingFestival) return 'happy'
   if (visitor.emotion === 'angry') return 'angry'
   if (visitor.emotion === 'sad') return 'sad'
   if (visitor.emotion === 'excited') return 'excited'

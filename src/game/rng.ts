@@ -18,6 +18,14 @@ export function hashStringSeed(value: string): number {
   return hash >>> 0
 }
 
+export function visitorLooksFemale(id: string): boolean {
+  return Boolean(((hashStringSeed(id) & 255) >>> 5) & 1)
+}
+
+export function rollsBungeeNude(id: string, roll: number, chance = 0.1): boolean {
+  return visitorLooksFemale(id) && roll < chance
+}
+
 export class DeterministicRng implements RngSource {
   private state: number
 

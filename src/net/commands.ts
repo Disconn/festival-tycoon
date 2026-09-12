@@ -3,10 +3,13 @@ import type { GameCommand } from './protocol'
 
 export function applyGameCommand(game: GameState, command: GameCommand): ActionResult {
   switch (command.type) {
+    case 'setRideAccess': return game.setRideAccess(command.buildingId, command.accessType, command.x, command.z)
+    case 'placeBungee': return game.placeBungee(command.x, command.z, command.height)
+    case 'setBungeeHeight': return game.setBungeeHeight(command.id, command.height)
     case 'festival':
       return game.manageFestival(command.action)
     case 'place':
-      return game.place(command.kind, command.x, command.z)
+      return game.place(command.kind, command.x, command.z, command.decorationSlot)
     case 'placePath':
       return game.placePathSegment(
         command.x,
@@ -25,7 +28,7 @@ export function applyGameCommand(game: GameState, command: GameCommand): ActionR
         command.previousPath,
       )
     case 'bulldoze':
-      return game.bulldoze(command.x, command.z)
+      return game.bulldoze(command.x, command.z, command.buildingId)
     case 'bulldozeArea':
       return game.bulldozeArea(command.cells)
     case 'editTerrain':
@@ -123,7 +126,11 @@ export function applyGameCommand(game: GameState, command: GameCommand): ActionR
     case 'recallCoasterTrain':
       return game.recallCoasterTrain(command.coasterId)
     case 'updateBuildingPrice':
-      game.updateBuildingPrice(command.buildingId, command.price)
+      game.updateBuildingPrice(
+        command.buildingId,
+        command.price,
+        command.allOfKind,
+      )
       return { ok: true, message: 'Preis geändert' }
     case 'updateEntryPrice':
       game.updateEntryPrice(command.price)
@@ -145,6 +152,10 @@ export function applyGameCommand(game: GameState, command: GameCommand): ActionR
       )
     case 'addDebugMoney':
       return game.addDebugMoney()
+    case 'clearWasteForDebug':
+      return game.clearWasteForDebug()
+    case 'placeSceneryLine':
+      return game.placeSceneryLine(command.kind, command.cells, command.slot, command.rotation)
     case 'removeVisitorCars':
       return game.removeVisitorCarsForDebug()
   }

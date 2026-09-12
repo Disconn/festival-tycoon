@@ -23,8 +23,11 @@ export type GameCommand = GameCommandAction & {
 }
 
 type GameCommandAction =
+  | { type: 'setRideAccess'; buildingId: string; accessType: 'entrance' | 'exit'; x: number; z: number }
+  | { type: 'placeBungee'; x: number; z: number; height: number }
+  | { type: 'setBungeeHeight'; id: string; height: number }
   | { type: 'festival'; action: FestivalAction }
-  | { type: 'place'; kind: BuildingKind; x: number; z: number }
+  | { type: 'place'; kind: BuildingKind; x: number; z: number; decorationSlot?: number }
   | {
       type: 'placePath'
       x: number
@@ -42,7 +45,7 @@ type GameCommandAction =
       elevation: number
       previousPath?: PlacedBuilding
     }
-  | { type: 'bulldoze'; x: number; z: number }
+  | { type: 'bulldoze'; x: number; z: number; buildingId?: string }
   | { type: 'bulldozeArea'; cells: CellRef[] }
   | { type: 'editTerrain'; x: number; z: number; mode: TerrainEditMode }
   | { type: 'designateRoad'; cells: RoadPosition[] }
@@ -99,7 +102,7 @@ type GameCommandAction =
   | { type: 'updateCoasterPrice'; coasterId: string; price: number }
   | { type: 'setCoasterOperationMode'; coasterId: string; mode: CoasterOperationMode }
   | { type: 'recallCoasterTrain'; coasterId: string }
-  | { type: 'updateBuildingPrice'; buildingId: string; price: number }
+  | { type: 'updateBuildingPrice'; buildingId: string; price: number; allOfKind?: boolean }
   | { type: 'updateEntryPrice'; price: number }
   | { type: 'updateSecurityGate'; id: string; config: Partial<SecurityGateConfig> }
   | { type: 'setDayPlanHour'; offer: DayPlanOffer; hour: number; active: boolean }
@@ -107,6 +110,8 @@ type GameCommandAction =
   | { type: 'updateCampingCapacityBuffer'; percent: number }
   | { type: 'updateFestivalCycle'; leadDays: number; festivalDays: number; breakDays: number }
   | { type: 'addDebugMoney' }
+  | { type: 'clearWasteForDebug' }
+  | { type: 'placeSceneryLine'; kind: BuildingKind; cells: Array<{ x: number; z: number }>; slot: number; rotation?: number }
   | { type: 'removeVisitorCars' }
 
 export type NetPlayer = {
@@ -132,6 +137,8 @@ export type PackedVisitor = Pick<
   | 'emotion'
   | 'alcoholLevel'
   | 'streakingMinutes'
+  | 'toplessMinutes'
+  | 'bungeeNude'
   | 'tileOffsetX'
   | 'tileOffsetZ'
   | 'isDancing'

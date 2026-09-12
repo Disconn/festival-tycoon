@@ -8,7 +8,7 @@ export function batchCampMeshes(source: Group): Group {
   source.traverse(object => {
     if (!(object instanceof Mesh) || !(object.material instanceof MeshStandardMaterial) || object.material.map || object.material.transparent) return
     const material = object.material
-    const key = JSON.stringify([(object.geometry as any).parameters, object.geometry.type, material.side, material.roughness, material.metalness, object.castShadow])
+    const key = JSON.stringify([(object.geometry as any).parameters ?? object.geometry.uuid, object.geometry.type, material.vertexColors, material.side, material.roughness, material.metalness, object.castShadow])
     const bucket = buckets.get(key) ?? []
     bucket.push(object); buckets.set(key, bucket)
     object.visible = false
@@ -20,6 +20,9 @@ export function batchCampMeshes(source: Group): Group {
     const material = (first.material as MeshStandardMaterial).clone()
     material.color.setHex(0xffffff)
     const batch = new InstancedMesh(first.geometry.clone(), material, parts.length)
+    // These copies belong to the batch, even if their source geometry is cached.
+    batch.geometry.userData = {...first.geometry.userData, shared: false}
+    material.userData = {...material.userData, shared: false}
     batch.castShadow = first.castShadow
     batch.frustumCulled = false
     parts.forEach((part, index) => {

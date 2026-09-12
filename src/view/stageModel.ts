@@ -109,14 +109,13 @@ export function animateStageModel(root:Group,phase:ShowPhase,time:number,active:
     if(light){light.position.copy(rig.position);light.target.position.copy(new Vector3(0,rig.userData.length,0).applyQuaternion(rig.quaternion).add(rig.position));light.color.set(phase.color);light.intensity=rig.visible?phase.intensity*1.8:0}
   }
 }
-/** A small shared pool illuminates the map; beam meshes remain visible for every fixture. */
-export function updateStageLightPool(models:Group[],pool:SpotLight[],camera:Vector3){
-  const candidates:Array<{rig:Group;distance:number}>=[]
-  for(const root of models)for(const rig of (root.userData.effects??[]) as Group[]){if(rig.visible&&rig.userData.kind==='spot')candidates.push({rig,distance:rig.getWorldPosition(new Vector3()).distanceToSquared(camera)})}
-  candidates.sort((a,b)=>a.distance-b.distance)
+/** A shared pool illuminates the whole map; beam meshes remain visible for every fixture. */
+export function updateStageLightPool(models:Group[],pool:SpotLight[]){
+  const candidates:Group[]=[]
+  for(const root of models)for(const rig of (root.userData.effects??[]) as Group[]){if(rig.visible&&rig.userData.kind==='spot')candidates.push(rig)}
   pool.forEach((light,index)=>{
-    const entry=candidates[index];if(!entry){light.intensity=0;return}
-    const rig=entry.rig,material=(rig.children[0] as Mesh).material as MeshBasicMaterial
+    const rig=candidates[Math.floor(index*candidates.length/pool.length)];if(!rig){light.intensity=0;return}
+    const material=(rig.children[0] as Mesh).material as MeshBasicMaterial
     rig.getWorldPosition(light.position);light.target.position.copy(rig.localToWorld(new Vector3(0,rig.userData.length,0)));light.color.copy(material.color);light.intensity=45*rig.userData.intensity/100;light.distance=12
   })
 }

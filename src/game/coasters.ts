@@ -17,6 +17,7 @@ export const TRACK_PIECE_KINDS = [
   'curveRight3',
   'curveLeft4',
   'curveRight4',
+  'sBendLeft', 'sBendRight', 'verticalLoop', 'halfLoopUp', 'halfLoopDown', 'photo', 'splash', 'brakes',
 ] as const
 
 export type TrackPieceKind = (typeof TRACK_PIECE_KINDS)[number]
@@ -34,6 +35,7 @@ export type TrackAnchor = {
 }
 
 export type TrackPoint = {
+  frameHeading?: number
   x: number
   y: number
   z: number
@@ -52,6 +54,7 @@ export type TrackPiece = {
 }
 
 export type CoasterTrain = {
+  photoPieces?: string[]
   state: 'boarding' | 'running' | 'unloading'
   cars: number
   passengers: number
@@ -134,6 +137,7 @@ export type TrackPieceDefinition = {
   targetPitch?: number
   chainAllowed?: boolean
   station?: boolean
+  special?: boolean
 }
 
 export type TrackBuildOptions = {
@@ -174,6 +178,14 @@ export type CoasterTypeDefinition = {
 }
 
 export const TRACK_PIECES: Record<TrackPieceKind, TrackPieceDefinition> = {
+  sBendLeft: { kind: 'sBendLeft', name: 'S-Kurve links', cost: 240, special: true },
+  sBendRight: { kind: 'sBendRight', name: 'S-Kurve rechts', cost: 240, special: true },
+  verticalLoop: { kind: 'verticalLoop', name: 'Vertikaler Looping', cost: 900, special: true },
+  halfLoopUp: { kind: 'halfLoopUp', name: 'Halber Looping aufwärts', cost: 550, special: true },
+  halfLoopDown: { kind: 'halfLoopDown', name: 'Halber Looping abwärts', cost: 550, special: true },
+  photo: { kind: 'photo', name: 'Fotostation', cost: 280, special: true },
+  splash: { kind: 'splash', name: 'Wassersplash', cost: 450, special: true },
+  brakes: { kind: 'brakes', name: 'Bremsstrecke', cost: 150, special: true },
   station: { kind: 'station', name: 'Stationsplattform', cost: SIMULATION_CONFIG.coasters.trackPieceCosts.station, station: true },
   straight: { kind: 'straight', name: 'Gerade', cost: SIMULATION_CONFIG.coasters.trackPieceCosts.straight },
   slopeGentleUp: {
@@ -280,6 +292,7 @@ export function createTrackPiece(
     pitch: start.pitch ?? 0,
     bank: start.bank ?? 0,
   }
+  if (definition.special) return createSpecialTrack(id, kind, normalizedStart)
   const targetPitch =
     kind === 'pitchTransition'
       ? options.targetPitch ?? normalizedStart.pitch
@@ -338,7 +351,9 @@ export function createTrackPiece(
       previousX = x
       previousZ = z
     }
-    end.elevation = elevation
+    end.elevation = normalizedStart.elevation + Math.round(elevation - normalizedStart.elevation)
+    const correction = end.elevation - elevation
+    points.forEach((point, index) => { point.y += correction * smoothStep(index / samples) })
     return {
       id,
       kind,
@@ -349,6 +364,8 @@ export function createTrackPiece(
     }
   }
 
+  const length = transition === 'pitch' ? 4 : Math.abs(targetPitch) > .001 && Math.abs(Math.tan(targetPitch)) < .75 ? 2 : 1
+  const rise = Math.round(length * (transition === 'pitch' ? (Math.tan(normalizedStart.pitch) + Math.tan(targetPitch)) / 2 : Math.tan(targetPitch)))
   const samples = 16
   const points: TrackPoint[] = []
   let elevation = normalizedStart.elevation
@@ -373,19 +390,23 @@ export function createTrackPiece(
           : targetPitch
       elevation += (t - previousT) * Math.tan(middlePitch)
     }
+    // Hermite endpoints preserve both pitches and land exactly on the height grid.
+    const startSlope = length * Math.tan(transition === 'pitch' ? normalizedStart.pitch : targetPitch)
+    const endSlope = length * Math.tan(targetPitch)
+    const hermiteY = (t * t * t - 2 * t * t + t) * startSlope + (-2 * t * t * t + 3 * t * t) * rise + (t * t * t - t * t) * endSlope
     points.push({
-      x: normalizedStart.x + forward.x * t,
-      y: elevation,
-      z: normalizedStart.z + forward.z * t,
+      x: normalizedStart.x + forward.x * t * length,
+      y: normalizedStart.elevation + hermiteY,
+      z: normalizedStart.z + forward.z * t * length,
       pitch,
       bank,
     })
     previousT = t
   }
   const end: TrackAnchor = {
-    x: normalizedStart.x + forward.x,
-    z: normalizedStart.z + forward.z,
-    elevation,
+    x: normalizedStart.x + forward.x * length,
+    z: normalizedStart.z + forward.z * length,
+    elevation: normalizedStart.elevation + rise,
     heading: normalizedStart.heading,
     pitch: targetPitch,
     bank: targetBank,
@@ -399,6 +420,32 @@ export function createTrackPiece(
     chainLift: Boolean(chainLift && definition.chainAllowed),
     transition,
   }
+}
+
+function createSpecialTrack(id: string, kind: TrackPieceKind, start: TrackAnchor): TrackPiece {
+  const forward = HEADINGS[start.heading]!, side = { x: forward.z, z: -forward.x }
+  const points: TrackPoint[] = [], looping = kind === 'verticalLoop' || kind === 'halfLoopUp' || kind === 'halfLoopDown'
+  const samples = looping ? 64 : 32
+  let endHeading = start.heading, endBank = start.bank
+  for (let i = 0; i <= samples; i++) {
+    const t = i / samples, ease = smoothStep(t)
+    let along = (kind === 'splash' ? 4 : kind === 'photo' || kind === 'brakes' ? 2 : 4) * t, lateral = 0, height = 0, pitch = 0, bank = start.bank
+    if (kind === 'sBendLeft' || kind === 'sBendRight') lateral = (kind === 'sBendLeft' ? 2 : -2) * ease
+    if (looping) {
+      const theta = t * (kind === 'verticalLoop' ? Math.PI * 2 : Math.PI), radius = 2
+      const down = kind === 'halfLoopDown'
+      along = radius * Math.sin(theta) + 2 * ease
+      height = (down ? -1 : 1) * radius * (1 - Math.cos(theta))
+      pitch = (down ? -1 : 1) * theta
+      bank = down ? Math.PI : 0
+      if (kind !== 'verticalLoop') { endHeading = (start.heading + 2) % 4; endBank = down ? 0 : Math.PI }
+    }
+    points.push({ x: start.x + forward.x * along + side.x * lateral, y: start.elevation + height, z: start.z + forward.z * along + side.z * lateral, pitch, bank, ...(looping ? { frameHeading: start.heading } : {}) })
+  }
+  const last = points.at(-1)!
+  // Remove trigonometric residue from construction anchors.
+  last.x = Math.round(last.x); last.y = Math.round(last.y); last.z = Math.round(last.z)
+  return { id, kind, start: { ...start }, end: { x: last.x, z: last.z, elevation: last.y, heading: endHeading, pitch: 0, bank: endBank }, points, chainLift: false }
 }
 
 function smoothStep(value: number): number {
@@ -478,6 +525,8 @@ export function getCoasterTrackPoints(coaster: Coaster): TrackPoint[] {
 }
 
 export type TrackSample = {
+  pieceKind: TrackPieceKind
+  pieceId: string
   point: TrackPoint
   tangent: TrackPoint
   right: TrackPoint
@@ -492,12 +541,18 @@ export type TrackSample = {
 export function computeTrackFrame(
   tangent: TrackPoint,
   bank: number,
+  pitch = 0,
+  frameHeading?: number,
 ): { right: TrackPoint; up: TrackPoint } {
   const forward = normalize(tangent)
   let baseRight = normalize({ x: forward.z, y: 0, z: -forward.x })
   if (Math.hypot(baseRight.x, baseRight.y, baseRight.z) < 0.001) {
     baseRight = { x: 1, y: 0, z: 0 }
   }
+  if (frameHeading !== undefined) {
+    const reference = HEADINGS[frameHeading] ?? HEADINGS[0]!
+    baseRight = { x: reference.z, y: 0, z: -reference.x }
+  } else if (Math.cos(pitch) < 0) baseRight = { x: -baseRight.x, y: -baseRight.y, z: -baseRight.z }
   const baseUp = normalize(cross(forward, baseRight))
   const cosine = Math.cos(bank)
   const sine = Math.sin(bank)
@@ -523,7 +578,7 @@ function cross(left: TrackPoint, right: TrackPoint): TrackPoint {
   }
 }
 
-export function sampleCoasterTrack(coaster: Coaster, distance: number): TrackSample | null {
+function buildSegments(coaster: Coaster) {
   const segments = coaster.pieces
     .flatMap((piece) =>
       piece.points.slice(0, -1).map((start, index) => {
@@ -532,6 +587,8 @@ export function sampleCoasterTrack(coaster: Coaster, distance: number): TrackSam
         const dy = end.y - start.y
         const dz = end.z - start.z
         return {
+          pieceKind: piece.kind,
+          pieceId: piece.id,
           start,
           end,
           length: Math.hypot(dx, dy, dz),
@@ -546,22 +603,38 @@ export function sampleCoasterTrack(coaster: Coaster, distance: number): TrackSam
     )
     .filter((segment) => segment.length > 0.0001)
   const totalLength = segments.reduce((total, segment) => total + segment.length, 0)
+  let accumulated = 0
+  const ends = segments.map(s => accumulated += s.length)
+  return { segments, totalLength, ends, signature: coaster.pieces.map(p => `${p.id}:${p.chainLift}`).join('|') }
+}
+
+const trackCache = new WeakMap<Coaster, ReturnType<typeof buildSegments>>()
+export function sampleCoasterTrack(coaster: Coaster, distance: number): TrackSample | null {
+  const signature = coaster.pieces.map(p => `${p.id}:${p.chainLift}`).join('|')
+  let cached = trackCache.get(coaster)
+  if (!cached || cached.signature !== signature) { cached = buildSegments(coaster); trackCache.set(coaster, cached) }
+  const { segments, totalLength, ends } = cached
   if (segments.length === 0 || totalLength <= 0) return null
 
   let remaining = coaster.closed
     ? ((distance % totalLength) + totalLength) % totalLength
     : Math.max(0, Math.min(totalLength, distance))
-  for (const segment of segments) {
-    if (remaining <= segment.length) {
-      const t = segment.length === 0 ? 0 : remaining / segment.length
+  let low = 0, high = ends.length - 1
+  while (low < high) { const mid = (low + high) >>> 1; if (ends[mid]! < remaining) low = mid + 1; else high = mid }
+  remaining -= low > 0 ? ends[low - 1]! : 0
+  for (const segment of [segments[low]!]) {
+    if (remaining <= segment.length + 1e-7) {
+      const t = Math.max(0, Math.min(1, remaining / segment.length))
       const tangent = {
         x: (segment.end.x - segment.start.x) / segment.length,
         y: (segment.end.y - segment.start.y) / segment.length,
         z: (segment.end.z - segment.start.z) / segment.length,
       }
       const bank = lerp(segment.startBank, segment.endBank, t)
-      const frame = computeTrackFrame(tangent, bank)
+      const frame = computeTrackFrame(tangent, bank, lerp(segment.startPitch, segment.endPitch, t), segment.start.frameHeading)
       return {
+        pieceKind: segment.pieceKind,
+        pieceId: segment.pieceId,
         point: {
           x: segment.start.x + (segment.end.x - segment.start.x) * t,
           y: segment.start.y + (segment.end.y - segment.start.y) * t,
@@ -586,8 +659,10 @@ export function sampleCoasterTrack(coaster: Coaster, distance: number): TrackSam
     y: (last.end.y - last.start.y) / last.length,
     z: (last.end.z - last.start.z) / last.length,
   }
-  const frame = computeTrackFrame(tangent, last.endBank)
+  const frame = computeTrackFrame(tangent, last.endBank, last.endPitch, last.end.frameHeading)
   return {
+    pieceKind: last.pieceKind,
+    pieceId: last.pieceId,
     point: { ...last.end },
     tangent,
     right: frame.right,

@@ -73,7 +73,7 @@ body #toast { top: auto; bottom: 64px; z-index: 40; max-width: min(640px, calc(1
 .way-swatch[data-surface=roadAsphalt] { background: repeating-linear-gradient(0deg, transparent 0 4px, #d1cbae 4px 8px) center/2px 100% no-repeat, #50555a; border-color: #89948e; }
 .way-selection-label { font-size: 10px; line-height: 1.35; margin: 3px 0 0 !important; color: #e3cf96 !important; }
 
-.game-shell:has(#path-construction.visible, #coaster-builder.visible) .crowding-panel { display: none; }
+.game-shell:has(#path-construction.visible, #coaster-builder.visible, #ride-builder.visible) .crowding-panel { display: none; }
 
 .integrated-way-picker .way-selection-label { min-height: 0; padding: 0; background: none; border: 0; }
 

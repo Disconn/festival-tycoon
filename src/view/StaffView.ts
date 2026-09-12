@@ -5,8 +5,8 @@ import {
   Group,
   Mesh,
   MeshStandardMaterial,
-  SphereGeometry,
 } from 'three'
+import { createNudeAnatomy, createPersonGeometry, createPersonDetails, personSeed, personStyle } from './pixelPeople'
 import { STAFF_DEFINITIONS } from '../game/staff'
 import type { StaffMember } from '../game/staff'
 import { disposeObject3D } from './disposeObject3D'
@@ -30,6 +30,7 @@ export class StaffView {
     staff: readonly StaffMember[],
     renderAlpha = 1,
     simTick = 0,
+    terrainHeight?: (x: number, z: number, y: number) => number,
   ): void {
     if (simTick !== this.interpolatedTick) {
       this.prevPos = this.currPos
@@ -60,7 +61,7 @@ export class StaffView {
       const moving = member.route.length > 0
       const phase = performance.now() * 0.009 + Number(member.id.replace(/\D/g, '').slice(-3))
       const pose = this.interpolatedPose(member, renderAlpha)
-      model.position.set(pose.x, pose.y + 0.04, pose.z)
+      model.position.set(pose.x, (terrainHeight?.(pose.x, pose.z, pose.y) ?? pose.y) + 0.04, pose.z)
       model.rotation.y +=
         Math.atan2(
           Math.sin(member.facing - model.rotation.y),
@@ -85,16 +86,22 @@ export class StaffView {
   private createModel(member: StaffMember): Group {
     const definition = STAFF_DEFINITIONS[member.role]
     const group = new Group()
-    const uniform = new MeshStandardMaterial({ color: definition.color, roughness: 0.8 })
-    const skin = new MeshStandardMaterial({ color: 0xf0bd8c, roughness: 0.9 })
-    const body = new Mesh(new CylinderGeometry(0.09, 0.115, 0.25, 8), uniform)
-    const head = new Mesh(new SphereGeometry(0.09, 9, 7), skin)
-    const leftLeg = new Mesh(new BoxGeometry(0.052, 0.22, 0.06), uniform)
+    const appearance = personStyle(personSeed(member.id))
+    const uniform = new MeshStandardMaterial({ color: definition.color, vertexColors: true, roughness: 0.9 })
+    const skin = new MeshStandardMaterial({ color: appearance.skin, vertexColors: true, roughness: 0.9 })
+    const pants = new MeshStandardMaterial({ color: 0x3c4c55, vertexColors: true, roughness: .9 })
+    const body = new Mesh(createPersonGeometry(appearance.female ? 'femaleBody' : 'body'), uniform)
+    const head = new Mesh(createPersonGeometry('head'), skin)
+    const leftLeg = new Mesh(createPersonGeometry('leg'), pants)
     const rightLeg = leftLeg.clone()
-    body.position.y = 0.36
-    head.position.y = 0.57
-    leftLeg.position.set(-0.045, 0.12, 0)
-    rightLeg.position.set(0.045, 0.12, 0)
+    const leftArm = new Mesh(createPersonGeometry('arm'), skin), rightArm = leftArm.clone()
+    const shoulder = appearance.female ? .11 : .128
+    leftArm.position.set(-shoulder, .485, 0); rightArm.position.set(shoulder, .485, 0)
+    leftArm.userData.walkLimb = -1; rightArm.userData.walkLimb = 1
+    body.position.y = .39
+    head.position.y = .605
+    leftLeg.position.set(-.044, .275, 0)
+    rightLeg.position.set(.044, .275, 0)
     leftLeg.userData.walkLimb = 1
     rightLeg.userData.walkLimb = -1
     const hat =
@@ -105,8 +112,15 @@ export class StaffView {
       hat,
       new MeshStandardMaterial({ color: definition.hatColor, roughness: 0.7 }),
     )
-    hatMesh.position.y = 0.68
-    group.add(leftLeg, rightLeg, body, head, hatMesh)
+    hatMesh.position.y = .72
+    const details = new Mesh(createPersonDetails(appearance.variant, false), new MeshStandardMaterial({vertexColors:true, roughness:.9}))
+    group.add(leftLeg, rightLeg, body, head, leftArm, rightArm, details, hatMesh)
+    if (appearance.female) {
+      const bust = new Mesh(createNudeAnatomy('bust'), uniform)
+      bust.position.y = .39
+      group.add(bust)
+    }
+    group.scale.set(appearance.width, appearance.height, appearance.width)
     if (member.role === 'cleaner') {
       const broom = new Group()
       const handle = new Mesh(

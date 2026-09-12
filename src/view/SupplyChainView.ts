@@ -1,5 +1,7 @@
 import { transportMotionFactor } from './transportMotion'
-import { BoxGeometry, Group, InstancedMesh, Line, BufferGeometry, LineBasicMaterial, Matrix4, Mesh, MeshStandardMaterial, Color, Vector3 } from 'three'
+import { BoxGeometry, Group, Line, BufferGeometry, LineBasicMaterial, Mesh, MeshStandardMaterial, Color, Vector3 } from 'three'
+import { TerrainShape } from './terrainShape'
+import { createTerrainSurface } from './terrainSurface'
 import type { GameSnapshot } from '../game/GameState'
 import { groundInfo } from '../game/ground'
 import { getTerrainHeight } from '../game/terrain'
@@ -13,6 +15,7 @@ export class SupplyChainView {
   private actors = new Map<string, Group>()
   private lastAnimationTime: number | null = null
   private groundStamp = ''
+  private groundShape: TerrainShape | undefined
   private depotStamp = ''
   private lineStamp = ''
   private gates = new Group()
@@ -25,7 +28,7 @@ export class SupplyChainView {
   }
   getCarrierPosition(id: string): Vector3 | undefined { return this.actors.get(id)?.position }
   getStaffMeshes(): Group[] { return [...this.actors.entries()].filter(([id])=>id.startsWith('carrier-')).map(([,model])=>model) }
-  update(s: Readonly<GameSnapshot>, planning: boolean) {
+  update(s: Readonly<GameSnapshot>, planning: boolean, shape?: TerrainShape) {
     this.ground.visible = planning
     const i = s.festival.infrastructure
     const gatePaths=s.buildings.filter(b=>b.kind==='path'&&b.staffOnly)
@@ -53,19 +56,22 @@ export class SupplyChainView {
     }
     for(const [id,model] of this.stockModels) if(!stockIds.has(id)){disposeChildren(model);this.group.remove(model);this.stockModels.delete(id)}
     const stamp = `${planning}:${s.scenario.environment}:${s.scenario.worldSize}:${JSON.stringify(i.ground)}:${JSON.stringify(s.terrain.heights)}`
-    if (stamp !== this.groundStamp) {
+    if (stamp !== this.groundStamp || this.groundShape !== shape) {
+      this.groundShape = shape
       this.groundStamp = stamp; disposeChildren(this.ground)
-      const size = s.scenario.worldSize, cells: Array<{ x: number; z: number }> = []
-      if (planning) { for (let z = -size / 2; z < size / 2; z++) for (let x = -size / 2; x < size / 2; x++) cells.push({ x, z }) }
-
-      const mesh = new InstancedMesh(new BoxGeometry(.96, .004, .96), new MeshStandardMaterial({ transparent: planning, opacity: planning ? .6 : 1, roughness: 1 }), cells.length)
-      const matrix = new Matrix4()
-      cells.forEach((p, index) => {
-        const ground = groundInfo(s, p.x, p.z)
+      if (planning) {
+      const size = s.scenario.worldSize
+      const mesh = createTerrainSurface(s, new MeshStandardMaterial({ vertexColors: true, transparent: true, opacity: .25, roughness: 1, depthWrite: false }), shape)
+      const colors = mesh.geometry.getAttribute('color'), tint = new Color()
+      let index = 0
+      for (let z = -size / 2; z < size / 2; z++) for (let x = -size / 2; x < size / 2; x++) {
+        const ground = groundInfo(s, x, z)
         const color = ground.surface === 'paved' ? 0xaebbb7 : ground.surface === 'gravel' ? 0x9e9a85 : ground.compacted ? 0x93835a : ground.drained ? 0x559a98 : ground.type === 'clay' ? 0xb57a59 : ground.type === 'gravel' ? 0xa3a280 : ground.type === 'sand' ? 0xd4bd83 : ground.type === 'grass' ? 0x79a85f : 0x828343
-        matrix.makeTranslation(p.x + .5, getTerrainHeight(s.terrain, p.x, p.z) + .005, p.z + .5)
-        mesh.setMatrixAt(index, matrix); mesh.setColorAt(index, new Color(color))
-      }); this.ground.add(mesh)
+        tint.setHex(color)
+        for (let corner = 0; corner < 5; corner++) colors.setXYZ(index++, tint.r, tint.g, tint.b)
+      }
+      mesh.position.y = .012; this.ground.add(mesh)
+      }
     }
     const depots = i.depots.map(d => `${d.id}:${d.role}:${d.x}:${d.z}:${getTerrainHeight(s.terrain, d.x, d.z)}`).join('|')
     if (depots !== this.depotStamp) {
@@ -126,7 +132,7 @@ export class SupplyChainView {
     }
     for (const [id, model] of this.actors) if (!active.has(id)) { disposeChildren(model); this.group.remove(model); this.actors.delete(id) }
   }
-  animate(paused: boolean, time = performance.now()): void {
+  animate(paused: boolean, time = performance.now(), terrainHeight?: (x: number, z: number, y: number) => number): void {
     const seconds = this.lastAnimationTime === null ? 0 : Math.min(.25, Math.max(0, (time-this.lastAnimationTime)/1000))
     this.lastAnimationTime=time
     if(paused) return
@@ -136,6 +142,7 @@ export class SupplyChainView {
       // Loading a different world or relocating an actor is not a drive across the map.
       if(model.position.distanceToSquared(target)>25) model.position.copy(target)
       else model.position.lerp(target,factor)
+      if (terrainHeight) model.position.y = terrainHeight(model.position.x, model.position.z, model.position.y)
       const angle=Number(model.userData.transportFacing??0)-model.rotation.y
       model.rotation.y+=Math.atan2(Math.sin(angle),Math.cos(angle))*factor
     }

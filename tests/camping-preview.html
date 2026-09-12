@@ -1,0 +1,21 @@
+<!doctype html><html lang="de"><meta charset="utf-8"><title>Camping – Modellvorschau</title>
+<style>body{margin:0;background:#263d36;color:#efe1ba;font:15px system-ui}header{position:absolute;top:24px;left:32px;pointer-events:none}h1{margin:0;font-size:26px}p{opacity:.8}canvas{display:block;image-rendering:pixelated}footer{position:absolute;bottom:22px;left:32px;opacity:.75}</style>
+<header><h1>Ein Campingplatz mit Charakter.</h1><p>Vier Zeltformen · drei Pavillons · feste Farben · kleine Festivaldetails</p></header>
+<footer>Maus ziehen zum Drehen · Mausrad zum Zoomen</footer>
+<script type="module">
+import * as T from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { createCampModel, campSeed, CAMP_COLORS } from '../src/view/campingModels.ts';
+const scene=new T.Scene();scene.background=new T.Color('#263d36');
+const camera=new T.PerspectiveCamera(36,innerWidth/innerHeight,.1,100);camera.position.set(3.8,4.6,7);camera.lookAt(0,.35,0);
+const renderer=new T.WebGLRenderer({antialias:false});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(.85);renderer.outputColorSpace=T.SRGBColorSpace;document.body.append(renderer.domElement);
+scene.add(new T.HemisphereLight(0xfff1d4,0x6c8666,2.4));const sun=new T.DirectionalLight(0xffe6c4,2.5);sun.position.set(-3,5,4);scene.add(sun);
+const ground=new T.Mesh(new T.BoxGeometry(6,.12,3.6),new T.MeshStandardMaterial({color:0x718663,roughness:1}));ground.position.y=-.085;scene.add(ground);
+for(const kind of ['tent','pavilion'])for(let variant=0;variant<(kind==='tent'?4:3);variant++){
+const id=Array.from({length:100},(_,i)=>`camp-${i}`).find(id=>campSeed(id)%(kind==='tent'?4:3)===variant);
+const model=createCampModel(kind,id,CAMP_COLORS[variant+(kind==='pavilion'?3:0)]);model.position.set((variant-(kind==='tent'?1.5:1))*1.35,0,kind==='tent'?.85:-.75);model.rotation.y=-.12;scene.add(model);
+}
+const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,.35,0);controls.minDistance=3;controls.maxDistance=14;controls.maxPolarAngle=Math.PI*.47;controls.update();
+const render=()=>renderer.render(scene,camera);controls.addEventListener('change',render);render();
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);render()});
+</script></html>

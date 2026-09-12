@@ -1,8 +1,9 @@
 import { batchCampMeshes } from './batchCampMeshes'
+import { campingBoundary, campingGrassTexture } from './campingGround'
+import { CAMP_COLORS, campRotation, campSeed, createCampModel } from './campingModels'
 import {
   BoxGeometry,
   CanvasTexture,
-  ConeGeometry,
   CylinderGeometry,
   Group,
   InstancedMesh,
@@ -94,13 +95,13 @@ export class CampingView {
   private camperFingerprint = ''
   private installationFingerprint = ''
   private tiles: InstancedMesh | null = null
-  private readonly tileGeometry = new PlaneGeometry(0.9, 0.9)
+  private boundary: InstancedMesh | null = null
+  private readonly tileGeometry = new PlaneGeometry(1, 1)
   private readonly tileMaterial = new MeshStandardMaterial({
-    color: 0x8aae62,
+    color: 0xffffff,
+    map: campingGrassTexture(),
     roughness: 1,
-    transparent: true,
-    opacity: 0.78,
-    depthWrite: false,
+    depthWrite: true,
   })
   private readonly tileRotation = new Quaternion().setFromAxisAngle(
     new Vector3(1, 0, 0),
@@ -167,7 +168,7 @@ export class CampingView {
   private createInstallationFingerprint(snapshot: Readonly<GameSnapshot>): string {
     let fingerprint = ''
     for (const installation of snapshot.campInstallations) {
-      fingerprint += `${installation.id}:${installation.cell.x}:${installation.cell.z}:${installation.kind}:${installation.contributorIds.length}:${Math.round(installation.decay ?? 0)}|`
+      fingerprint += `${installation.id}:${installation.cell.x}:${installation.cell.z}:${installation.kind}:${installation.contributorIds.length}:${installation.appearanceId}:${installation.fabricColor}:${Math.round(installation.decay ?? 0)}|`
     }
     return fingerprint
   }
@@ -178,6 +179,20 @@ export class CampingView {
 
   private updateTiles(snapshot: Readonly<GameSnapshot>): void {
     const cells = snapshot.campingCells
+    if (this.boundary) { this.group.remove(this.boundary); disposeObject3D(this.boundary); this.boundary = null }
+    const edges = campingBoundary(cells)
+    if (edges.length) {
+      const border = new InstancedMesh(new BoxGeometry(.34, .07, .065), new MeshStandardMaterial({ color: 0xc4bba0, roughness: 1 }), edges.length * 2)
+      const matrix = new Matrix4()
+      let at = 0
+      for (const edge of edges) for (const offset of [-.28, .28]) {
+        const angle = edge.direction * Math.PI / 2
+        matrix.makeRotationY(angle)
+        matrix.setPosition(edge.x + .5 + Math.sin(angle) * .47 + Math.cos(angle) * offset, getTerrainHeight(snapshot.terrain, edge.x, edge.z) + .045, edge.z + .5 + Math.cos(angle) * .47 - Math.sin(angle) * offset)
+        border.setMatrixAt(at++, matrix)
+      }
+      border.frustumCulled = false; this.boundary = border; this.group.add(border)
+    }
     if (cells.length === 0) {
       if (this.tiles) this.tiles.count = 0
       return
@@ -239,26 +254,13 @@ export class CampingView {
           0.02,
         visitor.campsite.z + 0.5,
       )
-      campsite.rotation.y =
-        ((Number(visitor.id.replace(/\D/g, '').slice(-2)) || 0) % 4) * (Math.PI / 2)
-      const tent = new Mesh(
-        new ConeGeometry(0.39, 0.52, 4),
-        new MeshStandardMaterial({ color: visitor.color, roughness: 0.9 }),
-      )
-      tent.rotation.y = Math.PI / 4
-      tent.position.y = 0.27
-      tent.castShadow = true
-      const entrance = new Mesh(
-        new PlaneGeometry(0.2, 0.22),
-        new MeshStandardMaterial({ color: 0x2f3440, side: 2 }),
-      )
-      entrance.position.set(0, 0.18, 0.285)
-      entrance.rotation.x = -0.18
+      campsite.rotation.y = campRotation(visitor.id)
+      const tent = createCampModel('tent', visitor.id, visitor.color)
       const parkedCart = createHandcartModel()
       parkedCart.scale.setScalar(0.8)
       parkedCart.position.set(0.34, 0.07, -0.24)
       parkedCart.rotation.y = -0.7
-      campsite.add(tent, entrance, parkedCart)
+      campsite.add(tent, parkedCart)
       if (visitor.campingPhase === 'resting') {
         const sleep = createSleepSprite()
         sleep.position.set(0.08, 0.86, 0)
@@ -267,18 +269,18 @@ export class CampingView {
       this.props.add(campsite)
       this.propModels.set(key, { stamp, model: campsite })
     })
-    const owners = new Map(snapshot.visitors.map(visitor => [visitor.id, visitor]))
     snapshot.campInstallations.forEach((installation) => {
-      const owner = owners.get(installation.ownerId)
+      const appearanceId = installation.appearanceId ?? installation.id
+      const color = installation.fabricColor ?? (installation.kind === 'tent' ? 0x8a6a4a : CAMP_COLORS[(campSeed(appearanceId) >>> 4) % CAMP_COLORS.length]!)
       const decay = installation.decay ?? 0
       const key = `installation:${installation.id}`
-      const stamp = `${installation.cell.x}:${installation.cell.z}:${getTerrainHeight(snapshot.terrain, installation.cell.x, installation.cell.z)}:${installation.kind}:${installation.contributorIds.length}:${owner?.color}:${Math.round(decay)}`
+      const stamp = `${installation.cell.x}:${installation.cell.z}:${getTerrainHeight(snapshot.terrain, installation.cell.x, installation.cell.z)}:${installation.kind}:${installation.contributorIds.length}:${appearanceId}:${color}:${Math.round(decay)}`
       if (!needsUpdate(key, stamp)) return
       const model =
         installation.kind === 'tent'
-          ? this.createAbandonedTentModel(owner?.color ?? 0x8a6a4a, decay)
+          ? this.createAbandonedTentModel(color, decay, appearanceId)
           : installation.kind === 'pavilion'
-            ? this.createPavilionModel(owner?.color ?? 0x668fbd)
+            ? createCampModel('pavilion', appearanceId, color, decay)
             : installation.kind === 'musicBox'
               ? this.createMusicBoxModel()
               : this.createChairModel(installation.contributorIds.length)
@@ -291,7 +293,8 @@ export class CampingView {
         ) + 0.02,
         installation.cell.z + 0.5,
       )
-      if (decay > 0 && installation.kind !== 'tent') {
+      if (installation.kind === 'tent' || installation.kind === 'pavilion') model.rotation.y = campRotation(appearanceId)
+      if (decay > 0 && installation.kind !== 'tent' && installation.kind !== 'pavilion') {
         const wear = decay / 100
         model.rotation.z += wear * 0.28
         model.scale.setScalar(1 - wear * 0.18)
@@ -309,25 +312,9 @@ export class CampingView {
     this.batchedProps.add(batchCampMeshes(this.props))
   }
 
-  private createAbandonedTentModel(color: number, decay: number): Group {
-    const group = new Group()
+  private createAbandonedTentModel(color: number, decay: number, id: string): Group {
+    const group = createCampModel('tent', id, color, decay)
     const wear = Math.max(0, Math.min(1, decay / 100))
-    const faded = Math.round(color * (1 - wear * 0.45) + 0x6b5340 * wear)
-    const tent = new Mesh(
-      new ConeGeometry(0.39, 0.52, 4),
-      new MeshStandardMaterial({ color: faded, roughness: 0.95 }),
-    )
-    tent.rotation.y = Math.PI / 4
-    tent.rotation.z = wear * 0.55
-    tent.position.y = 0.27 - wear * 0.08
-    tent.castShadow = true
-    const entrance = new Mesh(
-      new PlaneGeometry(0.2, 0.22),
-      new MeshStandardMaterial({ color: 0x2f3440, side: 2 }),
-    )
-    entrance.position.set(0, 0.18, 0.285)
-    entrance.rotation.x = -0.18
-    group.add(tent, entrance)
     if (wear < 0.7) {
       const parkedCart = createHandcartModel()
       parkedCart.scale.setScalar(0.8)
@@ -336,10 +323,8 @@ export class CampingView {
       parkedCart.rotation.z = wear * 0.4
       group.add(parkedCart)
     }
-    group.scale.setScalar(1 - wear * 0.16)
     return group
   }
-
   private createChairModel(amount: number): Group {
     const group = new Group()
     const material = new MeshStandardMaterial({ color: 0x3b6d87, roughness: 0.8 })
@@ -355,27 +340,6 @@ export class CampingView {
       chair.add(seat, back)
       group.add(chair)
     }
-    return group
-  }
-
-  private createPavilionModel(color: number): Group {
-    const group = new Group()
-    const postMaterial = new MeshStandardMaterial({ color: 0xe3d7bd, roughness: 0.8 })
-    ;[-0.32, 0.32].forEach((x) => {
-      ;[-0.32, 0.32].forEach((z) => {
-        const post = new Mesh(new BoxGeometry(0.035, 0.58, 0.035), postMaterial)
-        post.position.set(x, 0.29, z)
-        group.add(post)
-      })
-    })
-    const roof = new Mesh(
-      new ConeGeometry(0.55, 0.2, 4),
-      new MeshStandardMaterial({ color, roughness: 0.85 }),
-    )
-    roof.rotation.y = Math.PI / 4
-    roof.position.y = 0.66
-    roof.castShadow = true
-    group.add(roof)
     return group
   }
 

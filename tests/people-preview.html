@@ -1,0 +1,20 @@
+<!doctype html><html lang="de"><meta charset="utf-8"><title>Festivalfiguren – Modellvorschau</title>
+<style>body{margin:0;background:#223632;color:#f2dfb7;font:15px system-ui}header{position:absolute;top:22px;left:28px;pointer-events:none}h1{margin:0;font-size:25px}p{opacity:.75}canvas{display:block;image-rendering:pixelated}</style>
+<header><h1>Menschen machen das Festival.</h1><p>Weibliche Silhouetten mit Büste · männliche mit Bart · geschlechtsspezifische Frisuren</p></header>
+<script type="module">
+import * as T from 'three';
+import { createNudeAnatomy, createPersonGeometry, createPersonDetails, personStyle } from '../src/view/pixelPeople.ts';
+const scene=new T.Scene(); scene.background=new T.Color('#223632');
+const camera=new T.PerspectiveCamera(36,innerWidth/innerHeight,.1,100); camera.position.set(1.8,2.9,6.5);camera.lookAt(0,.3,0);
+const renderer=new T.WebGLRenderer({antialias:false});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(.8);renderer.outputColorSpace=T.SRGBColorSpace;document.body.append(renderer.domElement);
+scene.add(new T.HemisphereLight(0xfff3d6,0x607d65,2.7));const sun=new T.DirectionalLight(0xffe4bd,3);sun.position.set(-3,5,4);scene.add(sun);
+const ground=new T.Mesh(new T.BoxGeometry(5,.1,2.8),new T.MeshStandardMaterial({color:0x718667,roughness:1}));ground.position.y=-.07;scene.add(ground);
+const shirts=[0x374655,0xc26755,0xd2ae5b,0x4b8f8b,0x889858,0x895b84,0x6188ab,0xe4ce9f];
+for(let i=0;i<16;i++){
+const female=i>=8, variant=i%8, style=personStyle(female?32+variant:variant),g=new T.Group();g.position.set((variant-3.5)*.55,0,female?.55:-.65);g.rotation.y=female?-.12:Math.PI+.5;g.scale.set(style.width,style.height,style.width);scene.add(g);
+for(const [part,x,y,color] of [[female?'femaleBody':'body',0,.39,shirts[variant]],['head',0,.605,style.skin],['leg',-.044,.275,style.trousers],['leg',.044,.275,style.trousers],['arm',female?-.11:-.128,.485,style.skin],['arm',female?.11:.128,.485,style.skin]]){const m=new T.Mesh(createPersonGeometry(part),new T.MeshStandardMaterial({color,vertexColors:true,roughness:.95}));m.position.set(x,y,0);g.add(m)}
+if(female){const bust=new T.Mesh(createNudeAnatomy('bust'),new T.MeshStandardMaterial({color:shirts[variant],vertexColors:true,roughness:.95}));bust.position.y=.39;g.add(bust)}
+g.add(new T.Mesh(createPersonDetails(style.variant),new T.MeshStandardMaterial({vertexColors:true,roughness:.95})));
+}
+renderer.render(scene,camera);addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);renderer.render(scene,camera)});
+</script></html>

@@ -1,10 +1,11 @@
 import { BoxGeometry, BufferAttribute, BufferGeometry, Color, CylinderGeometry, Group, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial, Quaternion, Vector3 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { BuildingKind } from '../game/catalog'
+import { SCENERY_KINDS } from '../game/scenery'
 
 // Small, strongly silhouetted pieces, baked into vertex colors: detail adds
 // triangles, never a draw call per bolt, plank, bottle or awning stripe.
-class ModelKit {
+export class ModelKit {
   private parts: BufferGeometry[] = []
   private add(geometry: BufferGeometry, color: number, x: number, y: number, z: number, rotation = new Quaternion()): void {
     geometry.applyMatrix4(new Matrix4().compose(new Vector3(x, y, z), rotation, new Vector3(1, 1, 1)))
@@ -40,11 +41,71 @@ const ink = 0x28363b, cream = 0xf2dfb5, timber = 0x936141, steel = 0x92a6a5
 const material = new MeshStandardMaterial({ vertexColors: true, roughness: .85, metalness: .05 })
 material.userData.shared = true
 const geometries = new Map<BuildingKind, BufferGeometry>()
-export const DETAILED_BUILDINGS: readonly BuildingKind[] = ['food', 'alcohol', 'toilet', 'tree', 'hedge', 'bench', 'wasteBin', 'generator', 'backupGenerator', 'foh', 'delayTower', 'securityGate', 'ride']
+export const DETAILED_BUILDINGS: readonly BuildingKind[] = ['food', 'alcohol', 'toilet', 'bench', 'wasteBin', 'generator', 'backupGenerator', 'foh', 'delayTower', 'securityGate', 'ride', ...SCENERY_KINDS]
 
 function build(kind: BuildingKind): BufferGeometry {
   const k = new ModelKit()
-  if (kind === 'food' || kind === 'alcohol') {
+  if (kind === 'bunting' || kind === 'stringLights') {
+    for (const x of [-.44, .44]) { k.box(x, .68, 0, .045, 1.36, .07, timber); k.box(x, .03, 0, .13, .06, .27, ink) }
+    for (let n = 0; n < 8; n++) {
+      const x = -.44 + n * .11, y = 1.32 - Math.sin(n / 8 * Math.PI) * .16
+      k.beam([x, y, 0], [x + .11, 1.32 - Math.sin((n + 1) / 8 * Math.PI) * .16, 0], .015, ink)
+      if (kind === 'bunting') { k.box(x + .04, y - .055, 0, .085, .09, .015, [0xe4b754, 0xce5677, 0x5da397][n % 3]!); k.box(x + .04, y - .115, 0, .045, .04, .015, [0xe4b754, 0xce5677, 0x5da397][n % 3]!) }
+      else k.cylinder(x + .04, y - .06, 0, .028, .06, 0xffe2a1, .02, 6)
+    }
+  } else if (kind === 'hayBale') {
+    k.box(0, .22, 0, .85, .44, .65, 0xcaa658)
+    for (let i = 0; i < 7; i++) k.box(0, .055 + i * .058, .331, .83, .013, .012, 0xe0bf70)
+    for (const x of [-.25, .25]) { k.box(x, .22, .34, .025, .43, .015, timber); k.box(x, .445, 0, .025, .015, .66, timber) }
+  } else if (kind === 'parasol') {
+    k.box(0, .04, 0, .3, .08, .3, ink); k.cylinder(0, .55, 0, .025, 1.05, cream)
+    k.cylinder(0, 1.03, 0, .48, .23, 0xd75b79, .02, 8)
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; k.beam([0, 1.15, 0], [Math.cos(a) * .47, .92, Math.sin(a) * .47], .018, cream) }
+  } else if (kind === 'picnicTable') {
+    for (let i = 0; i < 5; i++) k.box(0, .55, -.2 + i * .1, .88, .045, .085, i % 2 ? 0xb58051 : timber)
+    for (const z of [-.38, .38]) { k.box(0, .32, z, .92, .05, .17, 0xb58051); for (const x of [-.28, .28]) k.beam([x, .03, z], [x, .54, 0], .065, timber) }
+  } else if (kind === 'festivalSign') {
+    k.box(0, .58, 0, .065, 1.16, .065, timber)
+    for (let i = 0; i < 3; i++) { const sign = i % 2 ? -1 : 1, y = 1.08 - i * .2; k.box(0, y, 0, .64, .14, .05, i % 2 ? 0xc95778 : 0x559f91); k.box(sign * .34, y, 0, .08, .085, .05, i % 2 ? 0xc95778 : 0x559f91); k.box(0, y, .032, .35, .018, .012, cream) }
+  } else if (kind === 'shrub' || kind === 'flowerbed' || kind === 'planter') {
+    const base = kind === 'planter' ? .35 : .06
+    k.box(0, base / 2, 0, .8, base, .8, kind === 'planter' ? 0xb37751 : 0x88754f)
+    k.box(0, base, 0, .7, .025, .7, 0x4f5135)
+    if (kind === 'planter') for (const x of [-.37, .37]) k.box(x, .34, 0, .08, .07, .87, cream)
+    for (let i = 0; i < 9; i++) {
+      const x = (i % 3 - 1) * .23, z = (Math.floor(i / 3) - 1) * .23
+      const height = kind === 'shrub' ? .21 + i % 3 * .06 : .1
+      k.cylinder(x, base + height / 2, z, .14, height, i % 2 ? 0x699a50 : 0x48784a, .11, 5)
+      k.box(x, base + height, z, .115, .035, .115, [0xe9be59, 0xcf6c93, 0xeee6bb][i % 3]!)
+      k.box(x, base + height + .024, z, .034, .015, .034, 0xf6dc8e)
+    }
+  } else if (kind === 'rock') {
+    k.cylinder(-.13, .18, .06, .36, .36, 0x798783, .24, 5)
+    k.cylinder(.24, .11, -.18, .24, .22, 0xa0aaa0, .16, 5)
+    k.box(-.2, .05, .27, .31, .065, .17, 0x739055)
+  } else if (kind === 'statue') {
+    k.box(0, .06, 0, .7, .12, .7, 0x657774)
+    k.box(0, .23, 0, .48, .23, .48, 0xb0b8a6)
+    k.box(0, .24, .25, .27, .075, .018, 0xb59a5c)
+    k.cylinder(-.12, .46, 0, .16, .13, 0xbd9b51, .14)
+    k.beam([0, .45, 0], [0, 1.12, 0], .07, 0xd4b66b)
+    k.beam([0, 1.1, 0], [.27, .98, 0], .08, 0xd4b66b)
+    k.beam([.27, .98, 0], [.27, .82, 0], .07, 0xbd9b51)
+  } else if (kind === 'banner') {
+    for (const x of [-.4, .4]) {
+      k.box(x, .64, 0, .045, 1.28, .08, timber)
+      k.box(x, .025, 0, .14, .05, .3, ink)
+      k.cylinder(x, 1.32, 0, .05, .08, 0xd7b968, .01)
+    }
+    k.box(0, 1.2, 0, .86, .045, .08, timber)
+    k.box(0, .93, 0, .74, .47, .055, 0xb74967)
+    k.box(0, .72, .033, .74, .035, .02, cream)
+    for (const side of [-1, 1]) {
+      k.box(0, .98, side * .036, .37, .035, .014, cream)
+      k.box(-.07, .89, side * .036, .23, .035, .014, cream)
+      k.box(.12, 1.04, side * .036, .035, .16, .014, cream)
+    }
+  } else if (kind === 'food' || kind === 'alcohol') {
     const accent = kind === 'food' ? 0xd95b3e : 0x3c8775
     k.box(0, .045, 0, .88, .09, .86, ink)
     k.box(0, .29, -.05, .76, .48, .66, timber)
@@ -94,19 +155,45 @@ function build(kind: BuildingKind): BufferGeometry {
       }
     }
   } else if (kind === 'toilet') {
-    k.box(0, .04, 0, .91, .08, .81, ink)
-    for (let i = 0; i < 3; i++) {
-      const x = (i - 1) * .29, tint = i === 1 ? 0x519eae : 0x638fab
-      k.box(x, .44, 0, .275, .81, .67, tint)
-      k.box(x, .43, .344, .225, .69, .023, 0x326b80)
-      k.box(x, .8, .36, .2, .04, .025, cream)
-      k.box(x + .072, .43, .367, .024, .024, .02, steel)
-      k.box(x, .67, .369, .075, .082, .02, cream)
-      k.box(x, .67, .382, .02, .052, .005, ink)
-      for (let j = 0; j < 3; j++) k.box(x, .19 + j * .032, .361, .17, .012, .01, ink)
-      k.box(x, .87, 0, .29, .08, .74, cream)
-      k.cylinder(x, .96, -.23, .026, .13, ink)
+    // A single moulded portable cabin: broad door, ribbed plastic shell and white roof cap.
+    const plastic = 0x378caa, ridge = 0x59a6bc, door = 0x468fa9, roof = 0xe8ece1
+    k.box(0, .045, 0, .74, .09, .78, 0x34454b)
+    for (const x of [-.25, .25]) k.box(x, .02, 0, .1, .04, .8, ink) // pallet runners
+    k.box(0, .575, 0, .66, .99, .68, plastic)
+    k.box(0, .13, 0, .7, .1, .72, 0x2a718c)
+    for (const x of [-.315, .315]) {
+      k.box(x, .595, .335, .055, .97, .045, ridge)
+      k.box(x, .595, -.335, .055, .97, .045, ridge)
     }
+    // Recessed door and raised mouldings, with a non-animated vacant indicator.
+    k.box(0, .575, .35, .535, .91, .026, 0x245b72)
+    k.box(0, .575, .369, .48, .85, .018, door)
+    k.box(0, .53, .383, .37, .57, .016, plastic)
+    for (const x of [-.17, 0, .17]) k.box(x, .51, .395, .018, .47, .014, ridge)
+    k.box(0, .92, .386, .22, .13, .018, roof)
+    // Pixel WC lettering is geometry, so it stays crisp in the world and menu thumbnail.
+    for (const x of [-.074, -.039, -.004]) k.box(x, .924, .399, .015, .066, .009, 0x235b72)
+    k.box(-.039, .897, .399, .085, .015, .009, 0x235b72)
+    k.box(.044, .924, .399, .015, .066, .009, 0x235b72)
+    for (const y of [.896, .95]) k.box(.065, y, .399, .05, .015, .009, 0x235b72)
+    k.box(.199, .66, .393, .054, .105, .02, ink)
+    k.box(.199, .69, .408, .028, .027, .014, 0xcbd5c7)
+    k.box(.199, .638, .418, .018, .053, .028, 0xc4ceca)
+    for (const y of [.32, .81]) k.box(-.249, y, .389, .029, .085, .027, 0x6c8990)
+    k.box(0, .097, .383, .53, .04, .12, 0x778788)
+    // Moulded ribs and upper ventilation louvers make side/back views recognisable too.
+    for (const side of [-1, 1]) {
+      for (const z of [-.22, -.075, .075, .22]) k.box(side * .338, .555, z, .025, .7, .027, ridge)
+      for (let j = 0; j < 3; j++) k.box(side * .342, .965 + j * .028, 0, .019, .014, .43, 0x2a657a)
+    }
+    for (const x of [-.21, 0, .21]) k.box(x, .57, -.351, .032, .76, .026, ridge)
+    // Stepped, lightly domed white cap rather than a house-shaped roof.
+    k.box(0, 1.074, 0, .75, .064, .79, 0xcbd6d2)
+    k.box(0, 1.116, 0, .72, .052, .76, roof)
+    k.box(0, 1.152, 0, .62, .026, .65, 0xf4f3e8)
+    for (const x of [-.2, 0, .2]) k.box(x, 1.17, 0, .025, .013, .51, 0xd8e2dc)
+    k.cylinder(.255, .79, -.365, .027, .9, 0x40565e, .027, 6)
+    k.cylinder(.255, 1.25, -.365, .044, .04, 0x34454b, .044, 6)
   } else if (kind === 'tree') {
     k.cylinder(0, .49, 0, .1, .96, timber, .058, 6)
     for (const sign of [-1, 1]) k.beam([0, .55, 0], [sign * .23, 1.04, .08], .065, 0x74543b)
@@ -182,8 +269,16 @@ function build(kind: BuildingKind): BufferGeometry {
       k.box(x, .035, 0, .2, .07, .31, ink)
       k.box(x, .71, .112, .06, .13, .015, 0x9dcc9a)
     }
-    k.box(0, 1.065, 0, .92, .17, .24, cream)
-    for (let i = 0; i < 5; i++) k.box(-.2 + i * .1, 1.065, .126, .06, .05, .013, 0x497e8b)
+    k.box(0, 1.065, 0, .92, .17, .24, 0xf3cc68)
+    k.box(0, 1.065, .126, .46, .08, .014, 0x344e72)
+    for (let i = 0; i < 7; i++) {
+      const color = [0xe85c70, 0xf3cc68, 0x65b9a5][i % 3]!
+      k.box(-.36 + i * .12, 1.22 - (i % 2) * .035, .02, .075, .1, .025, color)
+    }
+    for (const x of [-.24, 0, .24]) {
+      k.box(x, 1.39, 0, .035, .5, .035, cream)
+      k.box(x, 1.56, 0, .16, .12, .045, x === 0 ? 0xf3cc68 : 0xe85c70)
+    }
     k.box(0, .51, 0, .62, .035, .045, steel)
   } else if (kind === 'ride') {
     k.cylinder(0, .08, 0, .48, .16, 0xa44463, .48, 12)
@@ -228,6 +323,7 @@ export function batchRetroBuildings(source: Group): Group {
   const group = new Group(), matrix = new Matrix4()
   for (const [geometry, meshes] of buckets) {
     const batch = new InstancedMesh(geometry, material, meshes.length)
+    batch.userData.buildingIds = meshes.map(mesh => mesh.parent?.userData.buildingId)
     meshes.forEach((mesh, i) => batch.setMatrixAt(i, matrix.multiplyMatrices(inverse, mesh.matrixWorld)))
     batch.castShadow = batch.receiveShadow = true
     batch.computeBoundingSphere()

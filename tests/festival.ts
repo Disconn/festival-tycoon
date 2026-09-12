@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
-import { GameState } from '../src/game/GameState'
+import { FEMALE_VISITOR_NAMES, GameState, MALE_VISITOR_NAMES } from '../src/game/GameState'
 import type { GameSnapshot } from '../src/game/GameState'
-import { activeBookings, assignAudience, audienceMix, festivalTime, forecast, weatherAt, showIssue, updateFestival } from '../src/game/festivalManagement'
+import { activeBookings, assignAudience, audienceMix, festivalTime, forecast, weatherAt, showIssue, updateFestival, watchableBookings } from '../src/game/festivalManagement'
+import { visitorLooksFemale } from '../src/game/rng'
+import { CONCERT_TOPLESS_CROWD_THOUGHT, CONCERT_TOPLESS_THOUGHT, groupVisitorsByThought } from '../src/game/visitorThoughts'
+import { visitorIsFemale } from '../src/view/pixelPeople'
 import { WorldUpdates } from '../src/net/worldUpdates'
 import { packWorld } from '../src/net/codec'
 
@@ -19,19 +22,36 @@ export function testFestival(fixture: (count?: number) => GameState): void {
     return game
   }
   // The sandbox stage must provide meaningful fun even without booked-show bonuses.
-  const danceGame = fixture(1), dancer = danceGame.snapshot.visitors[0]!
+  const danceGame = fixture(1), sandboxDancer = danceGame.snapshot.visitors[0]!
   ;(danceGame as any).visitorsAwaitingDecision.clear()
   ;(danceGame.snapshot as GameSnapshot).parkOpen = true
-  dancer.state = 'partying'; dancer.route = []; dancer.interactionRemaining = 90
-  dancer.localPartyMood = 80; dancer.partyPreference = 1; dancer.alcoholLevel = 0
-  dancer.needs = { ...dancer.needs, fun: 20, energy: 90, hunger: 90, toilet: 90 }
-  dancer.pendingWaste = 0
+  sandboxDancer.state = 'partying'; sandboxDancer.route = []; sandboxDancer.interactionRemaining = 90
+  sandboxDancer.localPartyMood = 80; sandboxDancer.partyPreference = 1; sandboxDancer.alcoholLevel = 0
+  sandboxDancer.needs = { ...sandboxDancer.needs, fun: 20, energy: 90, hunger: 90, toilet: 90 }
+  sandboxDancer.pendingWaste = 0
   ;(danceGame as any).updateVisitors(10)
-  assert.equal(dancer.isDancing, true)
-  assert.ok(dancer.needs.fun >= 30, 'ten minutes dancing gives a visible net fun gain without a booked concert')
-  dancer.needs.fun = 99
+  assert.equal(sandboxDancer.isDancing, true)
+  assert.ok(sandboxDancer.needs.fun >= 30, 'ten minutes dancing gives a visible net fun gain without a booked concert')
+  sandboxDancer.needs.fun = 99
   ;(danceGame as any).updateVisitors(2)
-  assert.equal(dancer.needs.fun, 100, 'dance fun stays capped at 100')
+  assert.equal(sandboxDancer.needs.fun, 100, 'dance fun stays capped at 100')
+
+  const floorDance = create(1)
+  const floorGuest = floorDance.snapshot.visitors[0]!
+  ;(floorDance as any).visitorsAwaitingDecision.clear()
+  floorGuest.state = 'partying'
+  floorGuest.route = []
+  floorGuest.interactionRemaining = 90
+  floorGuest.localPartyMood = 12
+  floorGuest.partyPreference = 0.2
+  floorGuest.cellX = 5
+  floorGuest.cellZ = -20
+  floorGuest.cellElevation = 0
+  floorGuest.alcoholLevel = 0
+  floorGuest.needs = { ...floorGuest.needs, fun: 20, energy: 90, hunger: 90, toilet: 90 }
+  floorGuest.pendingWaste = 0
+  ;(floorDance as any).updateVisitors(1)
+  assert.equal(floorGuest.isDancing, true, 'stage floors invite dancing even with modest party taste')
 
   const game = create(20), s = game.snapshot as GameSnapshot, f = s.festival
   const stage = s.buildings.find(b => b.kind === 'stage')!
@@ -67,6 +87,43 @@ export function testFestival(fixture: (count?: number) => GameState): void {
   const reserved = s.visitors.filter(v => v.concertId)
   assert.equal(reserved.length, 9, 'one forecourt tile reserves no more than nine guests')
   assert.equal(new Set(reserved.map(v => v.activitySlot)).size, 9)
+
+  const ring = create(24), rs = ring.snapshot as GameSnapshot
+  const ringStage = rs.buildings.find(b => b.kind === 'stage')!
+  assert.ok(ring.manageFestival({ type: 'book', bandId: 'meadow', stageId: ringStage.id, day: rs.festival.startDay + 1, start: 840, duration: 90 }).ok)
+  assert.ok(ring.designateStageForecourt([
+    { x: 5, z: -21 }, { x: 5, z: -19 }, { x: 6, z: -19 }, { x: 6, z: -21 },
+    { x: 7, z: -20 }, { x: 7, z: -19 }, { x: 7, z: -21 },
+  ]).ok)
+  rs.day = book.day
+  rs.minute = 840
+  rs.power.poweredBuildingIds.push(ringStage.id)
+  rs.festival.weather = 'sun'
+  for (const visitor of rs.visitors) {
+    visitor.route = []
+    visitor.targetId = null
+    visitor.state = 'exploring'
+    visitor.musicTaste = 'indie'
+    visitor.audience = 'music'
+    visitor.cellX = 4
+    visitor.cellZ = -20
+    visitor.x = 4.5
+    visitor.z = -19.5
+    ;(ring as any).tryVisitConcert(visitor)
+  }
+  const ringGuests = rs.visitors.filter(v => v.concertId)
+  const ringTiles = new Map<string, number>()
+  for (const visitor of ringGuests) {
+    const key = `${visitor.activityTarget!.x},${visitor.activityTarget!.z}`
+    ringTiles.set(key, (ringTiles.get(key) ?? 0) + 1)
+  }
+  assert.ok(ringGuests.length >= 12, 'a ring of dance-floor tiles seats more than one packed tile')
+  assert.ok(ringTiles.size >= 4, 'concert guests spread around the connected stage')
+  assert.ok(
+    Math.max(...ringTiles.values()) <= Math.ceil(ringGuests.length / ringTiles.size) + 2,
+    'occupancy stays even around the dance floor',
+  )
+
   assert.equal(game.manageFestival({ type: 'cancel', id: f.bookings[0]!.id }).ok, false, 'no refund after show starts')
 
   assert.equal(forecast(f, 5, 12), forecast(new GameState(s).snapshot.festival, 5, 12))
@@ -150,5 +207,108 @@ export function testFestival(fixture: (count?: number) => GameState): void {
   const pausedTick = weekend.executedLogicTicks
   weekend.tick(0.1)
   assert.equal(weekend.executedLogicTicks, pausedTick, 'manual pause remains respected')
+
+  const show = create(4), ss = show.snapshot as GameSnapshot
+  const showStage = ss.buildings.find(b => b.kind === 'stage')!
+  assert.ok(show.manageFestival({ type: 'book', bandId: 'meadow', stageId: showStage.id, day: ss.festival.startDay + 1, start: 840, duration: 90 }).ok)
+  ss.day = ss.festival.startDay + 1
+  ss.minute = 810
+  ss.parkOpen = true
+  ss.power.poweredBuildingIds.push(showStage.id)
+  ss.festival.weather = 'sun'
+  ss.festival.upgrades.rigging = true
+  assert.equal(activeBookings(ss).length, 0, 'the set has not started yet')
+  assert.equal(watchableBookings(ss).length, 1, 'guests can walk in during the last half hour')
+  const earlyGuest = ss.visitors[0]!
+  earlyGuest.audience = 'music'
+  earlyGuest.musicTaste = 'indie'
+  earlyGuest.state = 'exploring'
+  earlyGuest.route = []
+  earlyGuest.cellX = 4
+  earlyGuest.cellZ = -20
+  earlyGuest.cellElevation = 0
+  earlyGuest.x = 4.5
+  earlyGuest.z = -19.5
+  earlyGuest.needs = { ...earlyGuest.needs, energy: 8, fun: 40, hunger: 90, toilet: 90 }
+  earlyGuest.pendingWaste = 0
+  earlyGuest.consumptionCooldown = 999
+  assert.equal((show as any).tryVisitConcert(earlyGuest), true)
+  assert.equal(earlyGuest.concertId, ss.festival.bookings[0]!.id)
+  assert.match(earlyGuest.thought, /schon/)
+  earlyGuest.route = []
+  earlyGuest.state = 'partying'
+  earlyGuest.localPartyMood = 0
+  earlyGuest.pendingWaste = 0
+  earlyGuest.inventory = []
+  earlyGuest.interactionRemaining = 1
+  earlyGuest.pendingWaste = 0
+  // This fixture directly stages attendance; discard the pre-start decision requests.
+  ;(show as any).visitorsAwaitingDecision.clear()
+  ;(show as any).updateVisitors(1)
+  assert.equal(earlyGuest.state, 'partying')
+  assert.equal(earlyGuest.concertId, ss.festival.bookings[0]!.id)
+  ss.minute = 850
+  earlyGuest.needs.energy = 4
+  ;(show as any).updateVisitors(1)
+  assert.equal(earlyGuest.state, 'partying', 'low energy does not end a booked show')
+  assert.equal(earlyGuest.concertId, ss.festival.bookings[0]!.id)
+  ss.minute = 930
+  ;(show as any).updateVisitors(1)
+  assert.equal(earlyGuest.concertId, null, 'guests leave after the last song')
+
+  const femaleId = Array.from({ length: 80 }, (_, index) => `concert-fan-${index}`).find(visitorLooksFemale)
+  assert.ok(femaleId)
+  assert.equal(visitorIsFemale(femaleId), true)
+  const dancer = ss.visitors[1]!
+  const neighbor = ss.visitors[2]!
+  dancer.id = femaleId
+  dancer.audience = 'music'
+  dancer.musicTaste = 'indie'
+  dancer.state = 'partying'
+  dancer.route = []
+  dancer.concertId = ss.festival.bookings[0]!.id
+  dancer.cellX = 5
+  dancer.cellZ = -20
+  dancer.x = 5.5
+  dancer.z = -19.5
+  dancer.needs = { ...dancer.needs, fun: 20, energy: 80, hunger: 90, toilet: 90 }
+  dancer.pendingWaste = 0
+  dancer.consumptionCooldown = 999
+  neighbor.state = 'partying'
+  neighbor.route = []
+  neighbor.concertId = ss.festival.bookings[0]!.id
+  neighbor.cellX = 5
+  neighbor.cellZ = -20
+  neighbor.x = 5.4
+  neighbor.z = -19.6
+  neighbor.needs = { ...neighbor.needs, fun: 20, energy: 80, hunger: 90, toilet: 90 }
+  neighbor.pendingWaste = 0
+  neighbor.consumptionCooldown = 999
+  ss.minute = 850
+  ss.parkOpen = true
+  const neighborFun = neighbor.needs.fun
+  for (let n = 0; n < 40 && dancer.toplessMinutes <= 0; n += 1) (show as any).updateVisitors(1)
+  assert.ok(dancer.toplessMinutes > 0, 'female guests may go topless during a live set')
+  ;(show as any).updateVisitors(1)
+  assert.equal(dancer.thought, CONCERT_TOPLESS_THOUGHT)
+  assert.ok(neighbor.needs.fun > neighborFun, 'nearby guests enjoy the topless cheer')
+  assert.equal(neighbor.thought, CONCERT_TOPLESS_CROWD_THOUGHT)
+  ss.festival.lastUpdate = festivalTime(ss) - 1
+  updateFestival(ss)
+  assert.equal(dancer.thought, CONCERT_TOPLESS_THOUGHT, 'live-set flavor text does not hide going topless')
+  const thoughtGroups = groupVisitorsByThought([dancer, neighbor, { ...neighbor, id: 'extra', thought: neighbor.thought }])
+  assert.equal(thoughtGroups.length, 2)
+  assert.equal(thoughtGroups.find(group => group.thought === CONCERT_TOPLESS_CROWD_THOUGHT)?.count, 2)
+
+  const named = create(16)
+  for (const visitor of named.snapshot.visitors) {
+    const given = visitor.name.split(' ')[0]!
+    if (visitorLooksFemale(visitor.id)) {
+      assert.ok(FEMALE_VISITOR_NAMES.includes(given), `${visitor.name} must be a female given name`)
+    } else {
+      assert.ok(MALE_VISITOR_NAMES.includes(given), `${visitor.name} must be a male given name`)
+    }
+  }
+
   console.log('PASS festival booking rules, audience demand, concert capacity, weather, stock, deliveries, saves, reports, next edition and network deltas')
 }

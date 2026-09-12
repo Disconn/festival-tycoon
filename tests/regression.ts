@@ -1,4 +1,10 @@
 import { testMusicPlanning } from './musicPlanning'
+import { testPixelPeople } from './pixelPeople'
+import { testCampingModels } from './campingModels'
+import { testRideAccess } from './rideAccess'
+import { testFestivalAdditions } from './festivalAdditions'
+import { testTerrainSurface } from './terrainSurface'
+import { testScenery } from './scenery'
 import { testMobileTouch } from './mobileTouch'
 import { testPerformanceGuards } from './performanceGuards'
 import { testStageInteraction } from './stageInteraction'
@@ -7,6 +13,7 @@ import { SupplyChainView } from '../src/view/SupplyChainView'
 import { transportMotionFactor } from '../src/view/transportMotion'
 import { testOperations } from './operations'
 import { CampingView } from '../src/view/CampingView'
+import { Color } from 'three'
 import { readFileSync } from 'node:fs'
 import { encodeSaveText, decodeSaveText } from '../src/game/saveText'
 import { testEnvironments } from './environments'
@@ -31,6 +38,8 @@ function test(name: string, run: () => void) {
 }
 
 testMobileTouch()
+testPixelPeople()
+testCampingModels()
 
 function fixture(count = 20): GameState {
   const initial = structuredClone(new GameState().snapshot)
@@ -54,6 +63,10 @@ function fixture(count = 20): GameState {
 }
 
 testPerformanceGuards(fixture)
+testScenery(fixture)
+testFestivalAdditions(fixture)
+testRideAccess(fixture)
+testTerrainSurface(fixture)
 
 test('Base64 saves preserve Unicode and full worlds without overwriting local saves', () => {
   const original = fixture(2)
@@ -99,6 +112,33 @@ test('camping visuals retain unaffected tents when one camper changes', () => {
   assert.equal(models.get(secondKey).model, second)
   view.invalidate()
   assert.equal(models.size, 0)
+})
+
+test('abandoned tent colors fade smoothly without hue jumps across camp rebuilds', () => {
+  const game = fixture(0), snapshot = game.snapshot
+  snapshot.campInstallations = [{ id: 'fading-tent', kind: 'tent', ownerId: '', contributorIds: [], cell: { x: 0, z: 0, elevation: 0 }, decay: 0 }]
+  const view = new CampingView()
+  const start = new Color(0x8a6a4a), end = new Color(0x6b5340)
+  let previous = start.clone()
+  for (let decay = 0; decay <= 100; decay++) {
+    snapshot.campInstallations[0]!.decay = decay
+    view.update(snapshot)
+    const root = (view as any).batchedProps.children[0]
+    const tents = root.children.find((batch: any) => batch.geometry.userData.campPart === 'tent-fabric')
+    const actual = new Color()
+    tents.getColorAt(0, actual)
+    for (const channel of ['r', 'g', 'b'] as const) {
+      assert.ok(actual[channel] <= start[channel] + 1e-6 && actual[channel] >= end[channel] - 1e-6, 'aging stays between the original fabric and its faded color')
+      assert.ok(Math.abs(actual[channel] - previous[channel]) < .005, 'each aging step fades smoothly')
+    }
+    previous = actual.clone()
+    view.invalidate()
+    view.update(structuredClone(snapshot))
+    const rebuilt = (view as any).batchedProps.children[0].children.find((batch: any) => batch.geometry.userData.campPart === 'tent-fabric')
+    rebuilt.getColorAt(0, actual)
+    assert.deepEqual(actual, previous, 'rebuilding the scene preserves tent colors')
+  }
+  view.invalidate()
 })
 
 test('transport rendering moves between cells smoothly and respects pause', () => {
