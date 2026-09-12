@@ -6,6 +6,7 @@ import { updateDepotCarriers } from '../src/game/depotCarriers'
 import { createStaffMember } from '../src/game/staff'
 import { StaffSimulation } from '../src/game/staffSimulation'
 import { DeterministicRng } from '../src/game/rng'
+import { zoneKey } from '../src/game/staffZones'
 import {
   abandonVisitorCamp,
   decayUnclaimedInstallations,
@@ -127,14 +128,14 @@ export function testOperations(fixture:(count?:number)=>GameState):void {
   assert.equal(bin.stored,0);assert.equal(cleaner.carryingWaste,4);assert.equal(cleaner.wasteFromBin,true)
   cleaner.route=[];(staff as any).finishArrival(cleaner,context)
   assert.equal(dump.stored,4,'bin contents are transported to waste disposal without disappearing')
-  for (const workArea of [undefined, null, {minX:2,maxX:4,minZ:0,maxZ:0}]) {
+  for (const workZones of [undefined, [], [zoneKey(1,0), zoneKey(3,0)]]) {
     const worker=createStaffMember('free-cleaner','cleaner',{x:0,z:0,elevation:0})
-    worker.workArea=workArea
+    worker.workZones=workZones
     const blocked={id:'blocked-bin',x:1,z:0,elevation:0,stored:5}
     const reachable={id:'reachable-bin',x:3,z:0,elevation:0,stored:5}
     staff.update({...context,staff:[worker],wasteBins:[blocked,reachable],
       findPath:(_a:any,goals:any[])=>goals[0].x===1?null:goals},.1)
-    assert.equal(worker.targetId,reachable.id,'workers find reachable work with no area, cleared area, or explicit area')
+    assert.equal(worker.targetId,reachable.id,'workers find reachable work with no zones, empty zones, or explicit zones')
   }
   const stranded=createStaffMember('patroller','cleaner',{x:0,z:0,elevation:0})
   staff.update({...context,staff:[stranded],wasteBins:[{...bin,stored:5}],
@@ -142,9 +143,9 @@ export function testOperations(fixture:(count?:number)=>GameState):void {
   assert.equal(stranded.targetId,null)
   assert.equal(stranded.route.length,1,'unreachable work does not prevent patrol')
   const restricted=createStaffMember('restricted','cleaner',{x:0,z:0,elevation:0})
-  restricted.workArea={minX:0,maxX:0,minZ:0,maxZ:0}
+  restricted.workZones=[zoneKey(9,9)]
   staff.update({...context,staff:[restricted],wasteBins:[{...bin,stored:5}]},.1)
-  assert.equal(restricted.targetId,null,'assigned areas still restrict work')
+  assert.equal(restricted.targetId,null,'assigned zones still restrict work')
   s.staff.push(cleaner)
   assert.ok(game.manageFestival({type:'staffArea',staffId:cleaner.id,from:{x:2,z:-20},to:{x:4,z:-16}}).ok)
   assert.deepEqual(cleaner.workArea,{minX:2,maxX:4,minZ:-20,maxZ:-16})
