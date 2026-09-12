@@ -174,3 +174,53 @@ frame-time input. Optional appearanceId/fabricColor on abandoned tents retain
 the original tent's shape, orientation and color through departure and saves.
 Legacy abandoned tents retain their brown fallback; wear fades in linear color
 space. `tests/camping-preview.html` shows the production models with orbit controls.
+
+## Browser freezes from changing light counts (0.1.27)
+
+The user-provided server save `dessert` (205 visitors, 1817 buildings, 119 incidents,
+90 camp installations, 80x80 world) reproduced a 23,692.5 ms `renderer.render()`
+call during an ordinary 180-frame run. Initial rendering also took 23,483.5 ms.
+Scene updates peaked at 22.9 ms and simulation at 39.8 ms in that run. The main
+freeze was therefore in rendering, not pathfinding or the fixed-tick scheduler.
+`FestivalLightsView` created/removes a PointLight for each currently active source.
+Three's WebGLLights includes point-light count in its shader cache key, so changes
+to shop hours or lit tents recompiled large shaders synchronously.
+
+Keep the eight festival PointLights and cursor light permanently attached, even
+at zero intensity. Never resize that pool, toggle its visibility, or create a
+PointLight per lamp/tent. The nearest sources to the camera focus use the fixed
+pool for illumination on objects. Every active source keeps its visible bulb and
+a soft, instanced ground light patch (two batches total), including sources beyond
+the real-time budget. Ground patches approximate distant light rather than casting
+full dynamic illumination onto all objects. Store no render choices in game state.
+`tests/performanceGuards.ts` covers schedules, 0/1/514 sources, stable light object
+identities/attachment, retained bulb/patch counts, and moving the camera focus.
+
+Reproduce browser timing with the Vite-only `tests/render-performance.html`.
+It reads an ignored local copy at `saves/performance-dessert-copy.json`; no personal
+save belongs in git. `?save=filename.json&frames=1800` changes the fixture and frame
+count. Select Pause/1x/3x/8x and start; each measurement restores the same snapshot.
+Initialization is reported separately from frame/CPU stage timings. Long tasks
+exclude initialization. The harness measures the production WorldView and GameState,
+without the main game's DOM panels. It does not overwrite saves or contact the
+public server. Hardware, viewport and graphics-driver cache affect timings.
+
+Measured in the in-app Chromium browser at 639x698: before the fix, 1x render
+median/p95/max was 11.5/19.7/23692.5 ms. After the fix, 180-frame render results were
+1x: 6.8/12.6/51.9 ms, 3x: 6.5/12.8/55.2 ms, and 8x: 7.4/52.8/54.9 ms.
+The longer 1800-frame 8x run reached 301 visitors, with render 6.9/51.8/78.2 ms,
+whole-frame 7.0/69.5/111.1 ms and a maximum long task of 112 ms. This removes the
+reproduced multi-second stall, but does not promise a hitch-free 60 FPS on all
+devices: several hundred draw calls and occasional 50–100 ms frames remain.
+
+CPU-only `dessert` 1200-step medians/p95/max: 1x 1.08/5.90/38.27 ms (206 visitors),
+3x 5.35/13.86/48.84 ms (467), 8x 10.30/25.29/46.38 ms (446).
+The mandatory `rtest3` 120-step before/after medians/p95/max were
+1x 8.82/23.75/50.52 -> 7.93/20.42/45.15 ms (1101 visitors),
+3x 15.99/27.80/30.26 -> 13.93/25.20/30.81 ms (1125),
+8x 17.43/27.28/39.33 -> 18.78/31.19/39.17 ms (1162).
+There is no simulation change; these differences are measurement noise.
+The 1200-step `rtest3` run measured 13.31/24.55/45.88 ms at 1x (1209 visitors),
+15.94/29.99/83.70 at 3x (666), and 14.67/29.37/110.24 at 8x (1).
+The latter ends the festival and empties the park, so it is not a steady-load result.
+Full regression tests and production build pass.

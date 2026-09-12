@@ -560,6 +560,7 @@ export class WorldView {
         snapshot.selectedTool !== 'bulldoze'
     }
     if (dataChanged) this.festivalLights.update(snapshot)
+    this.festivalLights.setFocus(this.cameraTarget)
     const cursorCell = this.hoveredCell
     this.festivalLights.updateCursor(cursorCell ? new Vector3(cursorCell.x + (cursorCell.localX ?? .5), this.terrainShape?.sample(cursorCell.x + (cursorCell.localX ?? .5), cursorCell.z + (cursorCell.localZ ?? .5)) ?? 0, cursorCell.z + (cursorCell.localZ ?? .5)) : null)
     if (fingerprint !== this.buildingFingerprint) {

@@ -3,7 +3,7 @@ import { Group, InstancedMesh, Mesh, Vector3 } from 'three'
 import { GameState } from '../src/game/GameState'
 import { SIMULATION_CONFIG } from '../src/game/simulationConfig'
 import { createRetroBuilding, batchRetroBuildings, DETAILED_BUILDINGS } from '../src/view/retroBuildings'
-import { FestivalLightsView } from '../src/view/FestivalLightsView'
+import { FESTIVAL_LIGHT_BUDGET, FestivalLightsView } from '../src/view/FestivalLightsView'
 import { createAttractionAccess } from '../src/view/attractionAccess'
 import { disposeObject3D } from '../src/view/disposeObject3D'
 
@@ -130,12 +130,28 @@ export function testPerformanceGuards(fixture: (count?: number) => GameState): v
   })
   const festivalLights = new FestivalLightsView()
   festivalLights.update(lightSnapshot)
-  assert.equal((festivalLights as any).bulbs.count, 15, 'all currently active sources remain visible without glow meshes')
-  assert.equal((festivalLights as any).pool.length, 15, 'every active source keeps its own light cast without camera selection')
+  assert.equal((festivalLights as any).bulbs.count, 15, 'all active light sources remain visible')
+  assert.equal((festivalLights as any).glows.count, 15, 'every source retains its own light pool')
+  assert.equal((festivalLights as any).pool.length, FESTIVAL_LIGHT_BUDGET, 'real-time lights have a fixed shader budget')
+  const originalLights = [...(festivalLights as any).pool]
   lightSnapshot.minute = 12 * 60
   lightSnapshot.dayPlan.offers.food[12] = false
   lightSnapshot.dayPlan.offers.lights[12] = false
   festivalLights.update(lightSnapshot)
   assert.equal((festivalLights as any).bulbs.count, 1, 'scheduled sources switch off while a sleeping tent may stay lit')
+  assert.equal((festivalLights as any).glows.count, 1)
+  assert.deepEqual((festivalLights as any).pool, originalLights, 'turning lights off does not rebuild the GPU shader variant')
+  lightSnapshot.visitors[0]!.campingPhase = 'none'
+  festivalLights.update(lightSnapshot)
+  assert.equal((festivalLights as any).bulbs.count, 0)
+  assert.ok(originalLights.every(light => light.intensity === 0 && light.parent === festivalLights.group), 'zero-source scenes keep the same inactive lights attached')
+  lightSnapshot.minute = 23 * 60
+  for (let index = 0; index < 500; index++) lightSnapshot.buildings.push({ id: `many-lights-${index}`, kind: 'stringLights', x: index % 40, z: Math.floor(index / 40), elevation: 0, rotation: 0, price: 0 })
+  festivalLights.update(lightSnapshot)
+  assert.equal((festivalLights as any).bulbs.count, 514)
+  assert.equal((festivalLights as any).glows.count, 514)
+  assert.deepEqual((festivalLights as any).pool, originalLights, 'adding hundreds of lights cannot increase shader light count')
+  festivalLights.setFocus(new Vector3(39, 0, 11))
+  assert.ok(originalLights.some(light => light.position.x > 35), 'real-time illumination follows the viewed area')
   console.log('PASS deterministic decision budget, camp route bound, cache refresh and detailed asset batching')
 }
