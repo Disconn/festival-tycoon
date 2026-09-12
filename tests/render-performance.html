@@ -1,0 +1,26 @@
+<!doctype html><html lang="de"><meta charset="utf-8"><title>Festival Render Performance</title>
+<style>body{margin:0;background:#233c37;color:white;font:12px monospace}canvas{width:100vw;height:100vh;display:block}aside{position:absolute;top:8px;left:8px;max-height:90vh;overflow:auto;background:#18322eee;padding:10px}pre{white-space:pre-wrap;max-width:650px}</style>
+<canvas id="game-canvas"></canvas><aside><button id="run">Messung starten</button><select id="speed"><option value="0">Pause</option><option value="1" selected>1×</option><option value="2">3×</option><option value="3">8×</option></select><pre id="result">Lade Testkopie …</pre></aside>
+<script type="module">
+import { GameState } from '../src/game/GameState.ts';
+import { WorldView } from '../src/view/WorldView.ts';
+const noop=()=>{}, canvas=document.querySelector('canvas'), output=document.querySelector('#result');
+const view=new WorldView(canvas,noop,noop,noop,noop,noop,noop,noop,noop);
+const file=new URLSearchParams(location.search).get('save')||'performance-dessert-copy.json';
+const slot=await (await fetch(`/saves/${encodeURIComponent(file)}`)).json();
+const raw=typeof slot.snapshot==='string'?slot.snapshot:JSON.stringify(slot);
+let game, running=false, totals={}, samples=[], frames=[], longTasks=[], init, measureStart=0;
+const frameCount=Math.max(180,Math.min(3600,Number(new URLSearchParams(location.search).get('frames'))||180));
+const methods=['rebuildBuildings','rebuildTerrain','rebuildTerrainIfNeeded','updateVisitors','updateCoasterTrains','updateDayNight','updatePreview'];
+function watch(target,key,label){const original=target[key];if(!original)return;target[key]=function(...args){const t=performance.now();try{return original.apply(this,args)}finally{if(running){const ms=performance.now()-t,r=totals[label]??={ms:0,calls:0,max:0};r.ms+=ms;r.calls++;r.max=Math.max(r.max,ms)}}}}
+methods.forEach(key=>watch(view,key,key));
+for(const key of ['campingView','medicalView','incidentView','logisticsView','supplyChainView','powerView','festivalLights','staffView','panicView','crowdingView','fireworksView']) watch(view[key],'update',`${key}.update`);
+new PerformanceObserver(list=>{if(running)longTasks.push(...list.getEntries().filter(x=>x.startTime>=measureStart).map(x=>x.duration))}).observe({type:'longtask',buffered:true});
+const stats=a=>{const s=[...a].sort((a,b)=>a-b);return {median:s[Math.floor(s.length*.5)],p95:s[Math.floor(s.length*.95)],max:s.at(-1)}};
+function initialize(){game=GameState.fromJSON(raw);game.setSpeed(Number(document.querySelector('#speed').value));view.invalidate();const t=performance.now();view.update(game.snapshot,1,game.worldRevision);const r=performance.now();view.render();init={scene:r-t,render:performance.now()-r};}
+function report(){output.textContent=JSON.stringify({save:slot.name,speed:game.snapshot.speed,visitors:game.snapshot.visitors.length,viewport:[canvas.clientWidth,canvas.clientHeight],frames:frames.length,init,frame:stats(frames),simulation:stats(samples.map(x=>x[0])),scene:stats(samples.map(x=>x[1])),render:stats(samples.map(x=>x[2])),draws:view.renderer.info.render.calls,triangles:view.renderer.info.render.triangles,geometries:view.renderer.info.memory.geometries,programs:view.renderer.info.programs.length,longTasks:stats(longTasks),methods:Object.fromEntries(Object.entries(totals).sort((a,b)=>b[1].ms-a[1].ms))},null,2)}
+let last=0;
+function frame(t){if(!running)return;const delta=Math.min(.1,(t-last)/1000);frames.push(t-last);last=t;const a=performance.now();game.tick(delta);const b=performance.now();view.update(game.snapshot,game.renderAlpha,game.worldRevision);const c=performance.now();view.render();samples.push([b-a,c-b,performance.now()-c]);if(samples.length>=frameCount){running=false;report();}else requestAnimationFrame(frame)}
+document.querySelector('#run').onclick=()=>{if(running)return;initialize();totals={};samples=[];frames=[];longTasks=[];output.textContent=`Messung läuft: ${frameCount} Frames`;running=true;measureStart=last=performance.now();requestAnimationFrame(frame)};
+initialize();output.textContent=JSON.stringify({ready:true,init,draws:view.renderer.info.render.calls,triangles:view.renderer.info.render.triangles,geometries:view.renderer.info.memory.geometries});
+</script></html>
