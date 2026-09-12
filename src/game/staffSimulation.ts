@@ -6,6 +6,7 @@ import type { WasteBinInfo, WasteDumpCell } from './waste'
 import { findNearestWasteDump, wasteDumpId, parseWasteDumpId } from './waste'
 import { SIMULATION_CONFIG } from './simulationConfig'
 import type { RngSource } from './rng'
+import { isInAnyZone, zoneCellRange } from './staffZones'
 
 type Cell = { x: number; z: number; elevation: number }
 type Patient = {
@@ -99,9 +100,9 @@ export class StaffSimulation {
         this.patrol(member, context)
         return
       }
-      const area = member.workArea
-      const inside = (x: number, z: number) => !area || x >= area.minX && x <= area.maxX && z >= area.minZ && z <= area.maxZ
-      const workContext = area ? { ...context, visitors: context.visitors.filter(v => inside(v.cellX, v.cellZ)), incidents: context.incidents.filter(p => inside(p.x, p.z)), wasteBins: context.wasteBins.filter(p => inside(p.x, p.z)), abandonedCamps: context.abandonedCamps?.filter(p => inside(p.x, p.z)) } : context
+      const zones = member.workZones
+      const inside = (x: number, z: number) => isInAnyZone(zones, x, z)
+      const workContext = zones?.length ? { ...context, visitors: context.visitors.filter(v => inside(v.cellX, v.cellZ)), incidents: context.incidents.filter(p => inside(p.x, p.z)), wasteBins: context.wasteBins.filter(p => inside(p.x, p.z)), abandonedCamps: context.abandonedCamps?.filter(p => inside(p.x, p.z)) } : context
       // An inaccessible job must not pin a worker in place. Bound path searches
       // per decision, then patrol so the next search starts from a new position.
       const excluded = new Set(claimed)
@@ -136,8 +137,8 @@ export class StaffSimulation {
     const security = context.staff.filter((member) => member.role === 'security')
     const assigned = new Set<string>()
     security.forEach((member) => {
-      const area = member.workArea
-      const gate = context.securityGates.find(g => !assigned.has(g.id) && (!area || g.x>=area.minX&&g.x<=area.maxX&&g.z>=area.minZ&&g.z<=area.maxZ))
+      const zones = member.workZones
+      const gate = context.securityGates.find(g => !assigned.has(g.id) && isInAnyZone(zones, g.x, g.z))
       if (gate) assigned.add(gate.id)
       member.assignedBuildingId = gate?.id ?? null
       if (!gate) {
@@ -482,11 +483,14 @@ export class StaffSimulation {
   }
 
   private patrol(member: StaffMember, context: StaffContext): void {
-    const area = member.workArea
-    const neighbors = context.pathNeighbors(this.staffCell(member)).filter(p => !area || p.x >= area.minX && p.x <= area.maxX && p.z >= area.minZ && p.z <= area.maxZ)
-    if (area && !neighbors.length) {
+    const zones = member.workZones
+    const neighbors = context.pathNeighbors(this.staffCell(member)).filter(p => isInAnyZone(zones, p.x, p.z))
+    if (zones?.length && !neighbors.length) {
       const goals: Cell[] = []
-      for (let z = area.minZ; z <= area.maxZ; z++) for (let x = area.minX; x <= area.maxX; x++) goals.push({x,z,elevation:member.cellElevation})
+      for (const key of zones) {
+        const area = zoneCellRange(key)
+        for (let z = area.minZ; z <= area.maxZ; z++) for (let x = area.minX; x <= area.maxX; x++) goals.push({x,z,elevation:member.cellElevation})
+      }
       member.route = context.findPath(this.staffCell(member), goals) ?? []
       return
     }
