@@ -14,7 +14,7 @@ const styles = Array.from({ length: 256 }, (_, n) => ({
   trousers: trousers[(n >>> 2) % trousers.length]!, height: .92 + (n % 7) * .025,
   width: .9 + ((n >>> 3) % 6) * .045,
   female: Boolean((n >>> 5) & 1),
-  skirt: Boolean((n >>> 5) & 1) && [0, 2, 5].includes(n % 8),
+  skirt: Boolean((n >>> 5) & 1) && [0, 1, 2, 3, 5, 7].includes(n % 8),
 }))
 export const personStyle = (seed: number) => styles[seed & 255]!
 export function visitorIsFemale(id: string): boolean {
@@ -28,14 +28,15 @@ export function createPersonGeometry(part: 'body' | 'femaleBody' | 'head' | 'leg
   if (cached) return cached
   const k = new ModelKit(), white = 0xffffff
   if (part === 'femaleBody') {
-    // Stepped tailoring reads as a waist, hips and bust even at the game's pixel scale.
-    k.box(0, -.025, 0, .119, .105, .1, white)
-    k.box(0, .065, .01, .155, .085, .12, white)
-    for (const x of [-.04, .04]) k.box(x, .05, .072, .074, .062, .062, white)
-    for (const x of [-.091, .091]) k.box(x, .066, 0, .04, .065, .088, white)
-    k.box(0, -.095, 0, .178, .065, .118, white)
-    k.box(0, .116, .008, .05, .012, .057, 0x77767c)
-    k.box(0, -.064, .003, .13, .016, .11, 0x70747b)
+    // Narrow waist, wider hips and a forward bust still read at crowd scale.
+    k.box(0, -.018, 0, .108, .092, .092, white)
+    k.box(0, .062, .016, .148, .078, .118, white)
+    for (const x of [-.042, .042]) k.box(x, .052, .08, .078, .066, .07, white)
+    for (const x of [-.088, .088]) k.box(x, .07, .004, .038, .058, .086, white)
+    k.box(0, -.098, .006, .188, .072, .124, white)
+    for (const x of [-.078, .078]) k.box(x, -.078, .02, .052, .042, .088, white)
+    k.box(0, .122, .01, .046, .02, .054, 0x77767c)
+    k.box(0, -.058, .008, .092, .012, .08, 0x6a5550)
   } else if (part === 'body') {
     k.box(0, -.035, 0, .145, .18, .105, white)
     k.box(0, .063, 0, .183, .10, .115, white)
@@ -68,10 +69,11 @@ export function createNudeAnatomy(kind: 'breasts' | 'bust' | 'penis') {
   if (cached) return cached
   const k = new ModelKit(), skin = 0xffffff, tip = 0xc48a78
   if (kind === 'breasts' || kind === 'bust') {
-    for (const x of [-.04, .04]) {
-      k.box(x, .048, .074, .074, .06, .06, skin)
-      if (kind === 'breasts') k.box(x, .052, .104, .018, .016, .016, tip)
+    for (const x of [-.043, .043]) {
+      k.box(x, .05, .086, .08, .068, .072, skin)
+      if (kind === 'breasts') k.box(x, .056, .12, .02, .018, .018, tip)
     }
+    if (kind === 'bust') k.box(0, .046, .07, .05, .04, .05, skin)
   } else {
     k.box(0, -.112, .046, .024, .052, .04, skin)
     k.box(0, -.142, .054, .018, .024, .03, skin)
@@ -88,24 +90,56 @@ export function createPersonDetails(variant: number, clothing = true) {
   variant %= 8
   const k = new ModelKit(), hair = [0x352b29, 0x644532, 0xb59050, 0x3d2925, 0xa35335, 0x332e30, 0xd8c7a2, 0x743b60][variant % 8]!
   if (female) {
-    k.box(0, .682, -.002, .132, .046, .122, hair)
-    k.box(0, .62, -.06, .128, .11, .026, hair)
+    k.box(0, .686, 0, .138, .052, .126, hair)
+    k.box(0, .624, -.058, .134, .118, .03, hair)
+    k.box(0, .598, .052, .086, .028, .02, hair)
     if (variant === 1 || variant === 5) {
-      // High ponytail / bun; clear from the back as well as from the front.
       k.box(0, .684, -.073, .073, .065, .055, hair)
       if (variant === 1) k.box(0, .587, -.087, .048, .15, .047, hair)
       k.box(0, .664, -.082, .056, .016, .056, 0xd7ae6c)
     } else {
-      const length = variant === 3 ? .09 : variant === 6 ? .18 : .14
-      for (const x of [-.061, .061]) k.box(x, .65-length/2, -.017, .028, length, .077, hair)
-      k.box(0, .65-length/2, -.066, .122, length, .036, hair)
+      const length = variant === 3 ? .1 : variant === 6 ? .2 : .155
+      for (const x of [-.064, .064]) k.box(x, .65-length/2, -.014, .032, length, .08, hair)
+      k.box(0, .65-length/2, -.07, .128, length, .04, hair)
     }
     if (variant === 4) for (const x of [-.027, 0, .027]) k.box(x, .697, .036, .021, .022, .024, 0xe9c682)
-    if (clothing && [0, 2, 5].includes(variant)) {
-      const fabric = [0x406e72, 0x795467, 0x536e93][variant % 3]!
-      k.box(0, .274, 0, .183, .08, .125, fabric)
-      k.box(0, .212, 0, .218, .048, .145, fabric)
-      k.box(0, .18, 0, .238, .025, .159, fabric)
+    for (const x of [-.058, .058]) k.box(x, .598, .042, .012, .016, .012, 0xe2c26b)
+    k.box(0, .548, .054, .046, .014, .016, variant % 2 ? 0x2b2430 : 0xe2c26b)
+    if (clothing) {
+      const neon = [0xce4d7a, 0x3c8f8a, 0xc45b2e, 0x6b4d93, 0xd4a24a, 0x2f6d9a, 0xb83d5a, 0x4a9b6e][variant]!
+      const dark = 0x241c22
+      if (variant === 0 || variant === 2 || variant === 5) {
+        k.box(0, .268, .004, .176, .062, .122, neon)
+        k.box(0, .214, .006, .208, .042, .138, neon)
+        k.box(0, .186, .008, .226, .022, .15, neon)
+      } else if (variant === 1 || variant === 3 || variant === 7) {
+        k.box(0, .268, .006, .162, .05, .118, dark)
+        k.box(0, .236, .008, .148, .028, .108, dark)
+      }
+      if (variant === 1 || variant === 7) {
+        for (const x of [-.042, .042]) k.box(x, .448, .074, .07, .042, .058, neon)
+        k.box(0, .438, .058, .028, .018, .036, neon)
+        k.beam([-.04, .49, .05], [-.04, .438, .08], .008, 0xf2e2c4)
+        k.beam([.04, .49, .05], [.04, .438, .08], .008, 0xf2e2c4)
+      } else if (variant === 2 || variant === 5) {
+        k.box(0, .452, .03, .118, .032, .1, neon)
+        for (const x of [-.038, .038]) k.box(x, .438, .07, .066, .038, .05, neon)
+      } else {
+        k.box(0, .458, .02, .142, .048, .112, neon)
+        k.box(0, .428, .026, .108, .018, .092, neon)
+      }
+      for (const x of [-.044, .044]) {
+        k.box(x, .062, .022, .074, .08, .11, dark)
+        k.box(x, .028, .036, .08, .028, .12, 0xe2c26b)
+      }
+    } else {
+      k.beam([-.055, .47, .08], [.055, .34, .086], .007, 0xe2c26b)
+      k.beam([.055, .47, .08], [-.055, .34, .086], .007, 0xe2c26b)
+      k.box(0, .34, .09, .02, .02, .012, 0xe2c26b)
+      for (const x of [-.044, .044]) {
+        k.box(x, .058, .024, .076, .086, .114, 0x1e1820)
+        k.box(x, .022, .04, .082, .026, .122, 0xe2c26b)
+      }
     }
   } else {
     k.box(0, .674, -.008, .12, .035, .115, hair)
@@ -130,13 +164,12 @@ export function createPersonDetails(variant: number, clothing = true) {
     for (const x of [-.029, .029]) k.box(x, .623, .064, .045, .025, .012, 0x242c35)
     k.box(0, .625, .065, .026, .009, .012, 0x242c35)
   }
-  if (clothing) {
-    // A small print, laminate pass and woven lanyard read clearly at game scale.
+  if (clothing && (!female || variant === 0 || variant === 3 || variant === 6)) {
     k.box(0, .433, .06, .049, .033, .008, variant % 2 ? 0xe8d9b0 : 0x85b6ac)
     k.beam([-.028, .511, .052], [0, .367, .064], .008, 0xe2c26b)
     k.beam([.028, .511, .052], [0, .367, .064], .008, 0xe2c26b)
     k.box(0, .357, .066, .027, .04, .008, 0xe5dfca)
-    if (variant === 0 || variant === 3 || variant === 6) {
+    if (!female && (variant === 0 || variant === 3 || variant === 6)) {
       k.box(0, .398, -.087, .122, .156, .066, variant === 3 ? 0xa76048 : 0x425763)
       k.box(0, .35, -.126, .081, .048, .027, 0x33414a)
       for (const x of [-.062, .062]) k.box(x, .431, .061, .018, .15, .011, 0x333e47)

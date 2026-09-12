@@ -24,7 +24,7 @@ export function mountLogisticsUI(getGame: () => GameState, view: WorldView, toas
   groundPanel.setAttribute('aria-label', 'Gelände planen')
   groundPanel.innerHTML = `<header class="panel-header"><span class="panel-drag-line" aria-hidden="true"></span><h2 class="panel-header-title">Gelände</h2><span class="panel-drag-line" aria-hidden="true"></span><button data-close class="panel-close-button" aria-label="Gelände schließen">×</button></header>
     <p>Besucher sind ausgeblendet. Gebäude und Wege baut ihr weiterhin links. Hier bereitet ihr den Untergrund vor. Die Planung verändert eure normale Bauauswahl nicht.</p>
-    <nav class="supply-tools"><button data-tool="inspect" aria-pressed="false">Feld prüfen</button><button data-tool="delivery">Anlieferungsplatz · 400 €</button><button data-tool="depot">Depot · 400 €</button><button data-tool="staffGate">Personaltor · 80 €</button>${Object.entries(GROUND_WORK).map(([key, work]) => `<button data-tool="${key}">${work.name} · ${work.cost} €</button>`).join('')}</nav>
+    <nav class="supply-tools"><button data-tool="inspect" aria-pressed="false">Feld prüfen</button>${Object.entries(GROUND_WORK).map(([key, work]) => `<button data-tool="${key}">${work.name} · ${work.cost} €</button>`).join('')}</nav>
     <p data-hint aria-live="polite">Links normal bauen oder hier eine Geländeoption wählen.</p><div data-cell class="supply-card">Boden erkennen: Furchen = Acker · rötliche Flecken = Lehm · Körnung = Kies · Grasbüschel = Wiese · Rippeln = Sand · Fugen = Pflaster.<br>Verdichteter Boden ist geglättet. Türkise Markierung: entwässert. Über ein Feld fahren für Tragfähigkeit und Ausbau.</div>`
   document.querySelector('.game-shell')!.append(groundPanel)
   makeDraggable(groundPanel.querySelector<HTMLElement>('.panel-header')!, groundPanel)
@@ -35,6 +35,8 @@ export function mountLogisticsUI(getGame: () => GameState, view: WorldView, toas
   const depotPanel = document.createElement('aside'); depotPanel.className = 'supply-planner panel'; depotPanel.hidden = true
   depotPanel.setAttribute('aria-label', 'Logistik und Untergrund planen')
   depotPanel.innerHTML = `<header class="panel-header"><span class="panel-drag-line" aria-hidden="true"></span><h2 class="panel-header-title">Logistik planen</h2><span class="panel-drag-line" aria-hidden="true"></span><button data-close class="panel-close-button" aria-label="Logistikansicht schließen">×</button></header>
+    <nav class="supply-tools"><button data-tool="delivery">Anlieferungsplatz · 400 €</button><button data-tool="depot">Depot · 400 €</button><button data-tool="staffGate">Personaltor · 80 €</button></nav>
+    <p data-place-hint aria-live="polite">Anlieferungsplatz, Depot oder Personaltor wählen und auf die Karte klicken.</p>
     <details open><summary>Depots & Nachschub</summary><p>1. Anlieferungsplatz neben einer Straße und Fußwegen setzen. 2. Depot an Fußwegen bauen. 3. Mindestbestände und Träger einstellen. Träger holen fehlende Waren und versorgen Stände automatisch.</p>
       <label>Depot<select name="depot"></select></label><div data-depot class="supply-card"></div><form data-depot-settings><label>Verwendung<select name="distribution"><option value="shops">Nur Versorgung von Ständen</option><option value="relay">Zwischenlager: andere Depots dürfen entnehmen</option></select></label><label>Träger am Depot<input name="workers" type="number" min="0" max="20" value="2"></label><button>Übernehmen · 120 € je neuem Träger</button></form><button data-remove-depot>Leeres Depot abbauen · +200 €</button>
       <form data-minimum><label>Ware<select name="kind">${Object.entries(SUPPLIES).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}</select></label><label>Mindestbestand<input name="quantity" type="number" min="0" max="800" value="200" required></label><button>Mindestbestand setzen</button></form>
@@ -70,12 +72,19 @@ export function mountLogisticsUI(getGame: () => GameState, view: WorldView, toas
     } : null)
     getGame().setTool(next === 'path' ? 'path' : next === 'road' ? 'road' : next === 'wasteDump' ? 'wasteDump' : 'inspect')
     for (const p of [groundPanel, depotPanel]) p.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', String((b as HTMLElement).dataset.tool === mode)))
-    qG('[data-hint]').textContent = mode === 'waypoint' ? 'Bis zu zwölf Wegpunkte auf vorhandenen Fußwegen anklicken.' : mode === 'inspect' ? 'Feld anklicken: Tragfähigkeit, Nässe und Bestand.' : `${mode === 'path' ? WAY_TYPES[footType].name : mode === 'road' ? WAY_TYPES[roadType].name : groundPanel.querySelector(`[data-tool="${mode}"]`)?.textContent}: Feld anklicken oder mit gedrückter linker Maustaste eine Fläche ziehen.`
+    const groundLabel = mode === 'waypoint' ? 'Bis zu zwölf Wegpunkte auf vorhandenen Fußwegen anklicken.' : mode === 'inspect' ? 'Feld anklicken: Tragfähigkeit, Nässe und Bestand.' : `${mode === 'path' ? WAY_TYPES[footType].name : mode === 'road' ? WAY_TYPES[roadType].name : groundPanel.querySelector(`[data-tool="${mode}"]`)?.textContent ?? depotPanel.querySelector(`[data-tool="${mode}"]`)?.textContent}: Feld anklicken oder mit gedrückter linker Maustaste eine Fläche ziehen.`
+    qG('[data-hint]').textContent = groundLabel
+    const placeHint = depotPanel.querySelector<HTMLElement>('[data-place-hint]')
+    if (placeHint) {
+      placeHint.textContent = mode === 'delivery' ? 'Anlieferungsplatz neben Straße und Fußweg anklicken.' : mode === 'depot' ? 'Depot an einem Fußweg anklicken.' : mode === 'staffGate' ? 'Personaltor auf einem Fußweg anklicken.' : mode === 'waypoint' ? 'Bis zu zwölf Wegpunkte auf vorhandenen Fußwegen anklicken.' : 'Anlieferungsplatz, Depot oder Personaltor wählen und auf die Karte klicken.'
+    }
   }
   const releaseTool = () => {
     view.setGroundAreaTool(null); mode = 'none'
     for (const p of [groundPanel, depotPanel]) p.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', 'false'))
     qG('[data-hint]').textContent = 'Links normal bauen oder hier eine Geländeoption wählen.'
+    const placeHint = depotPanel.querySelector<HTMLElement>('[data-place-hint]')
+    if (placeHint) placeHint.textContent = 'Anlieferungsplatz, Depot oder Personaltor wählen und auf die Karte klicken.'
   }
   document.querySelector('.build-menu')!.addEventListener('click', event => {
     if ((event.target as Element).closest('[data-tool], #toggle-path-editor')) releaseTool()
