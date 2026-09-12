@@ -23,6 +23,9 @@ export type GameCommand = GameCommandAction & {
 }
 
 type GameCommandAction =
+  | { type: 'setRideAccess'; buildingId: string; accessType: 'entrance' | 'exit'; x: number; z: number }
+  | { type: 'placeBungee'; x: number; z: number; height: number }
+  | { type: 'setBungeeHeight'; id: string; height: number }
   | { type: 'festival'; action: FestivalAction }
   | { type: 'place'; kind: BuildingKind; x: number; z: number; decorationSlot?: number }
   | {
@@ -107,6 +110,8 @@ type GameCommandAction =
   | { type: 'updateCampingCapacityBuffer'; percent: number }
   | { type: 'updateFestivalCycle'; leadDays: number; festivalDays: number; breakDays: number }
   | { type: 'addDebugMoney' }
+  | { type: 'clearWasteForDebug' }
+  | { type: 'placeSceneryLine'; kind: BuildingKind; cells: Array<{ x: number; z: number }>; slot: number; rotation?: number }
   | { type: 'removeVisitorCars' }
 
 export type NetPlayer = {
@@ -132,6 +137,8 @@ export type PackedVisitor = Pick<
   | 'emotion'
   | 'alcoholLevel'
   | 'streakingMinutes'
+  | 'toplessMinutes'
+  | 'bungeeNude'
   | 'tileOffsetX'
   | 'tileOffsetZ'
   | 'isDancing'

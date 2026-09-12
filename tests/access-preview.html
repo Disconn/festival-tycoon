@@ -1,0 +1,18 @@
+<!doctype html><html lang="de"><meta charset="utf-8"><title>Attraktionen – Zugänge</title>
+<style>body{margin:0;background:#344a40;color:#efe1ba;font:15px system-ui}header{position:absolute;top:20px;left:28px;pointer-events:none}h1{margin:0;font-size:24px}p{opacity:.8}canvas{display:block;image-rendering:pixelated}footer{position:absolute;bottom:20px;left:28px}</style>
+<header><h1>Ein guter erster Eindruck.</h1><p>Karussell · Bungee-Turm · Achterbahn<br>Hinten: Eingänge mit Kasse · vorne: Ausgänge</p></header>
+<footer>Ziehen zum Drehen · Mausrad zum Zoomen</footer>
+<script type="module">
+import * as T from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { createAttractionAccess } from '../src/view/attractionAccess.ts';
+const scene=new T.Scene();scene.background=new T.Color('#344a40');
+const camera=new T.PerspectiveCamera(34,innerWidth/innerHeight,.1,100);camera.position.set(-3.5,4.6,-6.5);camera.lookAt(0,.4,0);
+const renderer=new T.WebGLRenderer({antialias:false});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(.85);document.body.append(renderer.domElement);
+scene.add(new T.HemisphereLight(0xfff1d4,0x6c8666,2));const sun=new T.DirectionalLight(0xffe6c4,2.1);sun.position.set(-3,5,-4);scene.add(sun);
+const ground=new T.Mesh(new T.BoxGeometry(5.2,.12,3.5),new T.MeshStandardMaterial({color:0x718663,roughness:1}));ground.position.y=-.085;scene.add(ground);
+['carousel','bungee','coaster'].forEach((theme,i)=>['entrance','exit'].forEach((kind,j)=>{const model=createAttractionAccess(kind,theme);model.position.set((i-1)*1.5,0,j===0?.8:-.8);scene.add(model)}));
+const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,.4,0);controls.minDistance=3;controls.maxDistance=14;controls.maxPolarAngle=Math.PI*.47;controls.update();
+const render=()=>renderer.render(scene,camera);controls.addEventListener('change',render);render();
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);render()});
+</script></html>

@@ -15,6 +15,7 @@ export const BUILDING_KINDS = [
   'rock',
   'statue',
   'banner',
+  'bunting', 'stringLights', 'hayBale', 'parasol', 'picnicTable', 'festivalSign',
   'fence',
   'bench',
   'lighting',
@@ -114,11 +115,11 @@ export const BUILDINGS: Record<BuildingKind, BuildingDefinition> = {
   },
   securityGate: {
     kind: 'securityGate',
-    name: 'Sicherheitsschleuse',
+    name: 'Festival-Einlass',
     ...SIMULATION_CONFIG.economy.buildings.securityGate,
     height: 1.35,
     color: 0x344e72,
-    icon: '🛂',
+    icon: '🎟️',
   },
   tree: {
     kind: 'tree',
@@ -286,6 +287,12 @@ export const BUILDINGS: Record<BuildingKind, BuildingDefinition> = {
   rock: { kind: 'rock', name: 'Zierfelsen', cost: 35, upkeep: 0, capacity: 0, appeal: 2, defaultPrice: 0, height: .45, color: 0x8e9998, icon: '🪨' },
   statue: { kind: 'statue', name: 'Musikskulptur', cost: 120, upkeep: 1, capacity: 0, appeal: 8, defaultPrice: 0, height: 1.2, color: 0xc0a468, icon: '🎵' },
   banner: { kind: 'banner', name: 'Festivalbanner', cost: 40, upkeep: 1, capacity: 0, appeal: 3, defaultPrice: 0, height: 1.3, color: 0xc95670, icon: '🚩' },
+  bunting: { kind: 'bunting', name: 'Wimpelkette', cost: 35, upkeep: 1, capacity: 0, appeal: 5, defaultPrice: 0, height: 1.35, color: 0xe4b754, icon: '🎏' },
+  stringLights: { kind: 'stringLights', name: 'Lichterkette', cost: 65, upkeep: 2, capacity: 0, appeal: 7, defaultPrice: 0, height: 1.45, color: 0xffd58a, icon: '💡' },
+  hayBale: { kind: 'hayBale', name: 'Strohballen', cost: 20, upkeep: 0, capacity: 0, appeal: 2, defaultPrice: 0, height: .45, color: 0xd9b35e, icon: '🌾' },
+  parasol: { kind: 'parasol', name: 'Festival-Sonnenschirm', cost: 60, upkeep: 1, capacity: 0, appeal: 5, defaultPrice: 0, height: 1.15, color: 0xd75b79, icon: '⛱️' },
+  picnicTable: { kind: 'picnicTable', name: 'Picknickgarnitur', cost: 75, upkeep: 1, capacity: 0, appeal: 5, defaultPrice: 0, height: .6, color: 0xb28053, icon: '🪑' },
+  festivalSign: { kind: 'festivalSign', name: 'Festival-Wegweiser', cost: 30, upkeep: 0, capacity: 0, appeal: 3, defaultPrice: 0, height: 1.2, color: 0x569c91, icon: '🪧' },
 }
 
 export const STARTING_MONEY = SIMULATION_CONFIG.economy.startingMoney

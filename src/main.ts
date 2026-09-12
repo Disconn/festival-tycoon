@@ -7,6 +7,7 @@ import { mountStaffDetails } from './staffDetailsUI'
 import { encodeSaveText, decodeSaveText } from './game/saveText'
 import { deleteServerSave, listServerSaves, loadServerSave, saveServerSave, type ServerSaveSlot } from './game/serverSaves'
 import { ENVIRONMENTS } from './game/environments'
+import { groundInfo } from './game/ground'
 import type { Environment } from './game/environments'
 import { mountLogisticsUI } from './logisticsUI'
 import './style.css'
@@ -29,6 +30,7 @@ import type {
 } from './game/coasters'
 import { GameState } from './game/GameState'
 import type { PlacedBuilding } from './game/GameState'
+import { groupVisitorsByThought } from './game/visitorThoughts'
 import { enableMultiplayerCommands } from './net/bind'
 import { MultiplayerSession } from './net/session'
 import type { MultiplayerStatus } from './net/session'
@@ -148,6 +150,7 @@ app.innerHTML = `
             <button id="toggle-debug-menu" aria-expanded="false">🐞 Debug ▾</button>
             <div id="debug-menu-panel" class="debug-menu-panel panel">
               <button id="debug-money" title="Debug-Geld hinzufügen">💰 +100.000 €</button>
+              <button id="debug-clear-waste" title="Müll, Erbrochenes und verlassene Campinggegenstände sofort entfernen">🧹 Müll & alte Gegenstände entfernen</button>
               <button id="debug-remove-cars" title="Besucherautos entfernen">🚗 Autos entfernen & Gäste heimschicken</button>
             </div>
           </div>
@@ -281,6 +284,8 @@ app.innerHTML = `
         <h3>🎡 Attraktionen</h3>
         <div id="ride-tools" class="tools"></div>
         <button class="tool" data-tool="coaster"><span>🎢</span><em>Achterbahn<small>ab 450 €</small></em><kbd>0</kbd></button>
+        <button class="tool" data-tool="ride" data-bungee="true"><span>🪂</span><em>Bungee-Turm<small>1.200 € + 25 €/Meter</small></em></button>
+        <label>Turmhöhe (m) <input id="bungee-height" type="number" min="4" max="200" step="1" value="20" style="width:70px" /></label>
       </section>
       <section class="build-flyout panel" data-build-panel="emergency">
         <h3>🚑 Notfallversorgung</h3>
@@ -387,6 +392,28 @@ app.innerHTML = `
         <button id="build-path" class="primary" disabled><span>⬇</span> Bauen</button>
       </div>
     </aside>
+    <aside id="ride-builder" class="coaster-builder ride-builder panel" aria-label="Fahrgeschäft-Konstruktion" hidden>
+      <div class="construction-title"><div><small>Konstruktion</small><strong id="ride-builder-name">Fahrgeschäft bauen</strong></div><button id="close-ride-builder" aria-label="Fahrgeschäft-Editor schließen">×</button></div>
+      <p id="ride-builder-status" role="status"></p>
+      <section class="rct-editor-section">
+        <label>Zugänge bauen</label>
+        <div class="coaster-access-actions">
+          <button id="ride-entrance" aria-pressed="false"><span>🚪</span><strong>Eingang</strong><small id="ride-entrance-state">Fehlt</small></button>
+          <button id="ride-exit" aria-pressed="false"><span>🚶</span><strong>Ausgang</strong><small id="ride-exit-state">Fehlt</small></button>
+        </div>
+        <p class="ride-placement-help" id="ride-placement-help">Zugang wählen, dann ein freies Nachbarfeld anklicken.</p>
+        <small id="ride-access-status"></small>
+        <button id="cancel-ride-access" hidden>Platzierung abbrechen</button>
+      </section>
+      <section id="ride-tower-construction" class="rct-editor-section" hidden>
+        <label for="ride-target-height">Turm erweitern</label>
+        <div class="ride-height-controls"><button id="ride-height-down" aria-label="Turmplanung um 4 Meter senken">− 4 m</button><input id="ride-target-height" type="number" min="4" max="200" step="1" /><button id="ride-height-up" aria-label="Turmplanung um 4 Meter erhöhen">+ 4 m</button></div>
+        <small id="ride-built-height"></small>
+        <button id="ride-build-height" class="primary">Höhe bauen</button>
+      </section>
+      <p id="ride-platform-height"></p>
+      <div class="construction-actions"><button id="ride-builder-info">ⓘ Betriebsinfos</button><button id="finish-ride-builder" class="primary">✓ Fertig</button></div>
+    </aside>
     <aside id="coaster-builder" class="coaster-builder panel" aria-label="Achterbahn-Editor">
       <div class="construction-title">
         <div><small>Konstruktion</small><strong>Achterbahn bauen</strong></div>
@@ -401,6 +428,7 @@ app.innerHTML = `
       <section class="rct-editor-section track-section">
         <label>Richtung und Kurvenradius</label>
         <div id="track-direction-palette" class="piece-palette track-piece-palette"></div>
+        <h4>Sonderstücke</h4><div id="track-special-palette" class="piece-palette track-piece-palette"></div>
       </section>
       <section class="rct-editor-section track-section">
         <label>Zielneigung / Station</label>
@@ -500,6 +528,7 @@ app.innerHTML = `
       <section id="entity-overview">
         <p id="entity-status" class="visitor-thought">–</p>
         <div id="entity-stats" class="entity-stats"></div>
+        <button id="open-ride-construction" class="visitor-follow" hidden>🏗️ Konstruktion öffnen · Zugänge & Turmhöhe</button>
         <div id="price-options" class="coaster-options">
           <label for="entity-price">Preis pro Besucher</label>
           <div class="price-input"><input id="entity-price" type="number" min="0" max="1000000" step="1" /> <b>€</b></div>
@@ -526,6 +555,9 @@ app.innerHTML = `
           <input id="dispatch-interval" type="range" min="5" max="120" step="5" value="30" />
         </div>
         <div id="security-options" class="coaster-options">
+          <label for="security-flow-share">Besucherstrom zu diesem Einlass: <b id="security-flow-share-value">100%</b></label>
+          <input id="security-flow-share" type="range" min="0" max="100" step="5" value="100" />
+          <small>Bei mehreren passenden Einlässen werden Gäste nach diesen Anteilen verteilt.</small>
           <label for="security-thoroughness">Kontrollgründlichkeit: <b id="security-thoroughness-value">50%</b></label>
           <input id="security-thoroughness" type="range" min="0" max="100" step="5" value="50" />
           <label>Verbotene Gegenstände</label>
@@ -595,6 +627,7 @@ app.innerHTML = `
         <input id="visitor-thought-filter" type="search" placeholder="Gedanken durchsuchen …" />
         <select id="visitor-overview-sort" aria-label="Besucher sortieren">
           <option value="thought">Gedanke</option>
+          <option value="count">Anzahl</option>
           <option value="energy">Energie</option>
           <option value="alcohol">Alkohol</option>
           <option value="motivation">Festivallust</option>
@@ -610,7 +643,7 @@ app.innerHTML = `
       <div id="visitor-overview-summary" class="visitor-overview-summary"></div>
       <div class="visitor-overview-table-wrap">
         <table>
-          <thead><tr><th>Name</th><th>Gedanke</th><th>Status</th><th>Energie</th><th>Alkohol</th><th>Lust</th></tr></thead>
+          <thead><tr><th>Anzahl</th><th>Gedanke</th><th>Status</th><th>Energie</th><th>Alkohol</th><th>Lust</th></tr></thead>
           <tbody id="visitor-overview-list"></tbody>
         </table>
       </div>
@@ -681,8 +714,9 @@ Object.values(BUILDINGS).forEach((building, index) => {
   const container =
     building.kind === 'path'
       ? pathTools
-      : building.kind === 'securityGate' ||
-          building.kind === 'ambulanceGarage'
+      : building.kind === 'securityGate'
+        ? festivalTools
+      : building.kind === 'ambulanceGarage'
         ? emergencyTools
       : building.kind === 'busStop' ||
           building.kind === 'busDepot' ||
@@ -737,6 +771,14 @@ const TRACK_PIECE_ICONS: Record<TrackPieceKind, string> = {
   curveRight3: '↱³',
   curveLeft4: '↰⁴',
   curveRight4: '↱⁴',
+  sBendLeft: '⤴',
+  sBendRight: '⤵',
+  verticalLoop: '◯',
+  halfLoopUp: '∩',
+  halfLoopDown: '∪',
+  photo: '📷',
+  splash: '💦',
+  brakes: '▥',
 }
 COASTER_TYPES.classicSteel.supportedPieces.forEach((kind) => {
   const piece = TRACK_PIECES[kind]
@@ -763,13 +805,14 @@ function populateTrackPalette(palette: HTMLElement, kinds: TrackPieceKind[]): vo
   palette.insertAdjacentHTML(
     'beforeend',
     `<button data-track-piece="${kind}" title="${piece.name} · ${formatMoney(piece.cost)}">
-      <span>${TRACK_PIECE_ICONS[kind]}</span><small>${piece.station ? 'Station' : piece.radius ? `${piece.radius}×${piece.radius}` : 'Gerade'}</small>
+      <span>${TRACK_PIECE_ICONS[kind]}</span><small>${piece.station ? 'Station' : piece.radius ? `${piece.radius}×${piece.radius}` : piece.name}</small>
     </button>`,
   )
   })
 }
 
 populateTrackPalette(trackDirectionPalette, TRACK_DIRECTION_ORDER)
+populateTrackPalette(requireElement('#track-special-palette'), ['sBendLeft', 'sBendRight', 'verticalLoop', 'halfLoopUp', 'halfLoopDown', 'photo', 'splash', 'brakes'])
 trackSlopePalette.innerHTML = `
   <button data-track-pitch="${TRACK_PITCHES.steepDown}" title="Steil abwärts"><span>⇘</span><small>Steil ab</small></button>
   <button data-track-pitch="${TRACK_PITCHES.gentleDown}" title="Sanft abwärts"><span>↘</span><small>Sanft ab</small></button>
@@ -879,6 +922,9 @@ const securityThoroughness =
   requireElement<HTMLInputElement>('#security-thoroughness')
 const securityThoroughnessValue =
   requireElement<HTMLElement>('#security-thoroughness-value')
+const securityFlowShare = requireElement<HTMLInputElement>('#security-flow-share')
+const securityFlowShareValue =
+  requireElement<HTMLElement>('#security-flow-share-value')
 const securityProhibitedItems =
   requireElement<HTMLElement>('#security-prohibited-items')
 const securityStaffing = requireElement<HTMLElement>('#security-staffing')
@@ -970,6 +1016,8 @@ entityOverview.append(editStageButton)
 editStageButton.addEventListener('click',()=>{if(selectedEntity?.type==='building')stageEditor.open(selectedEntity.id)})
 const multiplayer = new MultiplayerSession(game)
 let hoveredCell: CellPosition | null = null
+let rideAccessPlacement: {id:string;type:'entrance'|'exit'} | null = null
+let activeRideId: string | null = null
 let selectedVisitorId: string | null = null
 let followedVisitorId: string | null = null
 let staffPanelFingerprint = ''
@@ -1002,6 +1050,8 @@ let pathHistory: Array<{
 let dragPathStart: CellPosition | null = null
 let dragPathEnd: CellPosition | null = null
 let dragPathElevation = 0
+let sceneryDragSlot: number | null = null
+let sceneryDragRotation = 0
 let cameraQuarter = 0
 let coasterBuilderActive = false
 let activeCoasterId: string | null = null
@@ -1023,6 +1073,7 @@ const view = new WorldView(
   (cell) => handleCellClick(cell),
   (cell) => {
     hoveredCell = cell
+    updateRideAccessPreview(cell)
     updateContextHelp()
   },
   (visitorId) => selectVisitor(visitorId),
@@ -1057,6 +1108,7 @@ const staffDetails = mountStaffDetails(() => game, view, showToast, () => supply
 
 function bindGameState(nextGame: GameState): void {
   unsubscribe()
+  closeRideBuilder(false)
   game = nextGame
   enableMultiplayerCommands(game)
   multiplayer.attach(game)
@@ -1135,9 +1187,14 @@ function bindGameState(nextGame: GameState): void {
     averagePartyBar.dataset.level =
       partyAverage >= 55 ? 'good' : partyAverage >= 20 ? 'warning' : 'critical'
     buildHeight.textContent = `Ebene ${snapshot.buildElevation}`
+    if (rideAccessPlacement && snapshot.selectedTool!=='ride') {
+      rideAccessPlacement=null; view.setRideAccessPreview(null)
+      requireElement<HTMLElement>('#cancel-ride-access').hidden=true
+    }
+    if (activeRideId && snapshot.selectedTool!=='ride' && snapshot.selectedTool!=='inspect') closeRideBuilder(false)
     buildDirection.textContent = `Zugang: ${getIsoDirectionIcon(snapshot.buildRotation)}`
     document.querySelectorAll<HTMLElement>('[data-tool]').forEach((button) => {
-      button.classList.toggle('active', button.dataset.tool === snapshot.selectedTool)
+      button.classList.toggle('active', button.dataset.tool === snapshot.selectedTool && (snapshot.selectedTool !== 'ride' || (button.dataset.bungee === 'true') === (view.bungeePreviewHeight !== null)))
     })
     const activeCategory =
       snapshot.selectedTool === 'food' ||
@@ -1148,9 +1205,10 @@ function bindGameState(nextGame: GameState): void {
           ? 'camping'
           : snapshot.selectedTool === 'ride' || snapshot.selectedTool === 'coaster'
             ? 'rides'
-            : snapshot.selectedTool === 'medicalArea' ||
-                snapshot.selectedTool === 'securityGate'
+            : snapshot.selectedTool === 'medicalArea'
               ? 'emergency'
+              : snapshot.selectedTool === 'securityGate'
+                ? 'festival'
               : isScenery(snapshot.selectedTool) || ['fence', 'bench', 'lighting'].includes(
                     snapshot.selectedTool,
                   )
@@ -1199,6 +1257,7 @@ function bindGameState(nextGame: GameState): void {
     updateContextHelp()
     updateVisitorPanel()
     updateCoasterBuilder()
+    updateRideBuilder()
     updateEntityPanel()
     updateStaffPanel()
     updateVisitorOverview()
@@ -1465,6 +1524,7 @@ function updateLogisticsPanel(force = false): void {
 
 type VisitorOverviewSort =
   | 'thought'
+  | 'count'
   | 'energy'
   | 'alcohol'
   | 'motivation'
@@ -1485,21 +1545,23 @@ function updateVisitorOverview(force = false): void {
       visitor.thought.toLocaleLowerCase('de').includes(filter) ||
       visitor.name.toLocaleLowerCase('de').includes(filter),
   )
-  const value = (visitor: (typeof filtered)[number]): string | number => {
+  const groups = groupVisitorsByThought(filtered)
+  const value = (group: (typeof groups)[number]): string | number => {
     switch (sort) {
-      case 'thought': return visitor.thought
-      case 'energy': return visitor.needs.energy
-      case 'alcohol': return visitor.alcoholLevel
-      case 'motivation': return visitor.motivation
-      case 'fun': return visitor.needs.fun
-      case 'nausea': return visitor.nausea
-      case 'crowding': return visitor.crowding
-      case 'attractiveness': return visitor.localAttractiveness
-      case 'party': return visitor.localPartyMood
-      case 'name': return visitor.name
+      case 'thought': return group.thought
+      case 'count': return group.count
+      case 'energy': return group.energy
+      case 'alcohol': return group.alcohol
+      case 'motivation': return group.motivation
+      case 'fun': return group.fun
+      case 'nausea': return group.nausea
+      case 'crowding': return group.crowding
+      case 'attractiveness': return group.attractiveness
+      case 'party': return group.party
+      case 'name': return group.sample.name
     }
   }
-  filtered.sort((left, right) => {
+  groups.sort((left, right) => {
     const leftValue = value(left)
     const rightValue = value(right)
     const comparison =
@@ -1508,10 +1570,10 @@ function updateVisitorOverview(force = false): void {
         : Number(leftValue) - Number(rightValue)
     return visitorOverviewAscending ? comparison : -comparison
   })
-  const pageSize = 100
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const pageSize = 40
+  const pageCount = Math.max(1, Math.ceil(groups.length / pageSize))
   visitorOverviewPage = Math.min(visitorOverviewPage, pageCount - 1)
-  const pageVisitors = filtered.slice(
+  const pageGroups = groups.slice(
     visitorOverviewPage * pageSize,
     (visitorOverviewPage + 1) * pageSize,
   )
@@ -1520,25 +1582,26 @@ function updateVisitorOverview(force = false): void {
     visitorOverviewAscending,
     filter,
     visitorOverviewPage,
+    groups.length,
     filtered.length,
-    ...pageVisitors.map(
-      (visitor) =>
-        `${visitor.id}:${visitor.state}:${visitor.streakingMinutes > 0 ? 'streak' : ''}:${visitor.thought}:${Math.round(visitor.needs.energy)}:${Math.round(visitor.alcoholLevel)}:${Math.round(visitor.motivation)}:${Math.round(visitor.needs.fun)}:${Math.round(visitor.nausea)}:${Math.round(visitor.crowding)}:${Math.round(visitor.localAttractiveness)}:${Math.round(visitor.localPartyMood)}`,
+    ...pageGroups.map(
+      (group) =>
+        `${group.thought}:${group.count}:${group.state}:${Math.round(group.energy)}:${Math.round(group.alcohol)}:${Math.round(group.motivation)}`,
     ),
   ].join('|')
   if (!force && fingerprint === visitorOverviewFingerprint) return
   visitorOverviewFingerprint = fingerprint
   visitorOverviewSummary.textContent =
-    `${filtered.length.toLocaleString('de-DE')} von ${game.snapshot.visitors.length.toLocaleString('de-DE')} Besuchern`
-  visitorOverviewList.innerHTML = pageVisitors
+    `${groups.length.toLocaleString('de-DE')} Gedanken · ${filtered.length.toLocaleString('de-DE')} von ${game.snapshot.visitors.length.toLocaleString('de-DE')} Besuchern`
+  visitorOverviewList.innerHTML = pageGroups
     .map(
-      (visitor) => `<tr data-visitor-overview-id="${visitor.id}">
-        <td><strong>${escapeHtml(visitor.name)}</strong></td>
-        <td title="${escapeHtml(visitor.thought)}">${escapeHtml(visitor.thought)}</td>
-        <td>${escapeHtml(visitor.state)}</td>
-        <td>${Math.round(visitor.needs.energy)}%</td>
-        <td>${Math.round(visitor.alcoholLevel)}%</td>
-        <td>${Math.round(visitor.motivation)}%</td>
+      (group) => `<tr data-visitor-overview-id="${group.sample.id}">
+        <td><strong>${group.count.toLocaleString('de-DE')}</strong></td>
+        <td title="${escapeHtml(group.thought)}">${escapeHtml(group.thought)}</td>
+        <td>${escapeHtml(group.state)}</td>
+        <td>${Math.round(group.energy)}%</td>
+        <td>${Math.round(group.alcohol)}%</td>
+        <td>${Math.round(group.motivation)}%</td>
       </tr>`,
     )
     .join('')
@@ -1562,7 +1625,22 @@ function escapeHtml(value: string): string {
   )
 }
 
+let bungeeBuildMode = false
+requireElement<HTMLInputElement>('#bungee-height').addEventListener('input', e => {
+  if (bungeeBuildMode) view.bungeePreviewHeight = Math.max(4, Math.min(200, Number((e.target as HTMLInputElement).value) || 20))
+})
 function handleCellClick(cell: CellPosition): void {
+  if (rideAccessPlacement) {
+    const {id,type}=rideAccessPlacement
+    const result=game.setRideAccess(id,type,cell.x,cell.z)
+    if (result.ok) {
+      const building=game.snapshot.buildings.find(b=>b.id===id)
+      if (type==='entrance' && !building?.rideExit) startRideAccessPlacement(id,'exit')
+      else cancelRideAccessPlacement()
+      updateEntityPanel()
+    }
+    showToast(result.message,!result.ok); return
+  }
   if (supplyPlanner.handleCell(cell)) return
   if (coasterBuilderActive) {
     if (coasterAccessMode && activeCoasterId) {
@@ -1634,7 +1712,8 @@ function handleCellClick(cell: CellPosition): void {
       return
     }
     const building = cell.buildingId ? game.snapshot.buildings.find(b => b.id === cell.buildingId) : game.getAt(cell.x, cell.z, undefined, cell.localX, cell.localZ)
-    if (building) openEntityInfoForBuilding(building.id)
+    if (building?.kind === 'ride') openRideBuilder(building.id)
+    else if (building) openEntityInfoForBuilding(building.id)
     else if (game.getCampingCellAt(cell.x, cell.z)) showToast('Ausgewiesener Zeltbereich')
     else {
       const height = game.getTerrainHeight(cell.x, cell.z)
@@ -1742,8 +1821,13 @@ function handleCellClick(cell: CellPosition): void {
               cell.z,
               !game.getPowerCableAt(cell.x, cell.z),
             )
+      : tool === 'ride' && bungeeBuildMode ? game.placeBungee(cell.x, cell.z, Number(requireElement<HTMLInputElement>('#bungee-height').value))
       : game.place(tool as BuildingKind, cell.x, cell.z, scenerySlot(tool, cell.localX, cell.localZ, game.snapshot.buildRotation))
   showToast(result.message, !result.ok)
+  if (result.ok && tool==='ride') {
+    const building=game.snapshot.buildings.find(b=>b.kind==='ride' && b.x===cell.x && b.z===cell.z && b.elevation===game.snapshot.buildElevation+game.getTerrainHeight(cell.x,cell.z))
+    if (building) { openRideBuilder(building.id); startRideAccessPlacement(building.id,'entrance') }
+  }
 }
 
 function paintPath(cell: CellPosition): void {
@@ -1770,6 +1854,17 @@ function startPathDrag(cell: CellPosition): void {
   }
   dragPathStart = { ...cell }
   dragPathEnd = { ...cell }
+  if (isScenery(game.snapshot.selectedTool)) {
+    sceneryDragRotation = game.snapshot.buildRotation
+    sceneryDragSlot = scenerySlot(
+      game.snapshot.selectedTool,
+      cell.localX,
+      cell.localZ,
+      sceneryDragRotation,
+    ) ?? 0
+  } else {
+    sceneryDragSlot = null
+  }
   dragPathElevation =
     game.snapshot.selectedTool === 'camping' ||
     game.snapshot.selectedTool === 'medicalArea' ||
@@ -1813,6 +1908,16 @@ function finishPathDrag(): void {
       ? createCampingArea(dragPathStart, dragPathEnd)
       : createConnectedPathLine(dragPathStart, dragPathEnd)
   let built = 0
+  if (isScenery(game.snapshot.selectedTool)) {
+    const tool = game.snapshot.selectedTool as BuildingKind
+    const slot =
+      sceneryDragSlot ??
+      scenerySlot(tool, dragPathStart.localX, dragPathStart.localZ, sceneryDragRotation)!
+    const result = game.placeSceneryLine(tool, cells, slot, sceneryDragRotation)
+    showToast(result.message, !result.ok)
+    dragPathStart = null; dragPathEnd = null; view.setPathDragPreview([], 0)
+    return
+  }
   if (game.snapshot.selectedTool === 'bulldoze') {
     const result = game.bulldozeArea(cells)
     showToast(result.message, !result.ok)
@@ -2021,6 +2126,7 @@ function getIsoDirectionIcon(direction: number): string {
 }
 
 function openPathEditor(): void {
+  closeRideBuilder(false)
   supplyPlanner.releaseTool()
   pathEditorActive = true
   pathAnchor = null
@@ -2150,6 +2256,8 @@ function updatePathEditor(): void {
 }
 
 function openCoasterBuilder(coasterId: string | null = null): void {
+  closeRideBuilder(false)
+  closeBuildSubmenus()
   supplyPlanner.releaseTool()
   if (pathEditorActive) closePathEditor()
   if (!coasterId) {
@@ -2320,8 +2428,7 @@ function updateCoasterBuilder(): void {
       !definition?.turn ||
       Boolean(
         anchorPiece &&
-          Math.abs(anchorPiece.end.bank) > 0.001 &&
-          Math.sign(anchorPiece.end.bank) === definition.turn,
+          (Math.abs(anchorPiece.end.bank) < 0.001 || Math.sign(anchorPiece.end.bank) === definition.turn),
       )
     const stationAllowed =
       !definition?.station ||
@@ -2333,6 +2440,7 @@ function updateCoasterBuilder(): void {
     button.disabled =
       (!coaster && button.dataset.trackPiece !== 'station') ||
       !curveAllowed ||
+      (Boolean(definition?.special) && (!anchorPiece || Math.abs(anchorPiece.end.pitch) > .001 || Math.abs(anchorPiece.end.bank - (definition.kind === 'halfLoopDown' ? Math.PI : 0)) > .001)) ||
       !stationAllowed
   })
   document.querySelectorAll<HTMLButtonElement>('[data-track-pitch]').forEach((button) => {
@@ -2454,6 +2562,12 @@ function updateContextHelp(): void {
     return
   }
   const tool = game.snapshot.selectedTool
+  if (rideAccessPlacement) {
+    contextHelp.textContent=hoveredCell
+      ? game.canPlaceRideAccess(rideAccessPlacement.id,rideAccessPlacement.type,hoveredCell.x,hoveredCell.z).message
+      : 'Ein- oder Ausgang auf ein freies Nachbarfeld setzen'
+    return
+  }
   if (!hoveredCell) {
     contextHelp.textContent = 'Bewege den Mauszeiger über das Gelände.'
     return
@@ -2463,6 +2577,9 @@ function updateContextHelp(): void {
   if (tool === 'inspect') {
     const height = game.getTerrainHeight(hoveredCell.x, hoveredCell.z)
     const dump = game.getWasteDumpAt(hoveredCell.x, hoveredCell.z)
+    const ground = groundInfo(game.snapshot, hoveredCell.x, hoveredCell.z)
+    const soilName = { field: 'Ackerboden', clay: 'Lehmboden', gravel: 'Kiesboden', sand: 'Sandboden', grass: 'Wiesenboden', urban: 'Stadtboden' }[ground.type]
+    const surfaceName = ground.surface === 'paved' ? 'Gepflastert' : ground.surface === 'gravel' ? 'Geschottert' : ground.compacted ? 'Verdichtet' : 'Unbefestigt'
     contextHelp.textContent = existing
       ? `${BUILDINGS[existing.kind].name} auswählen`
       : dump
@@ -2471,9 +2588,7 @@ function updateContextHelp(): void {
         ? 'Wasser'
         : height === -1
           ? 'Schlamm – Bewegung sehr langsam'
-          : height > 0
-            ? `Hügel Ebene ${height}`
-            : 'Unbebautes Feld'
+          : `${game.getCampingCellAt(hoveredCell.x, hoveredCell.z) ? 'Zeltbereich · ' : ''}${soilName} · ${surfaceName}${ground.drained ? ' · Entwässert' : ''} · Tragfähigkeit ${ground.bearing}/3${height > 0 ? ` · Ebene ${height}` : ''}`
   } else if (tool === 'terrainRaise') {
     contextHelp.textContent =
       'Klicken oder ziehen, um Hügel zu formen. Nachbarn bleiben begehbar.'
@@ -2528,6 +2643,9 @@ function updateContextHelp(): void {
   } else if (tool === 'fence') {
     contextHelp.textContent =
       'Bauzaun setzen: die aktuelle Baurichtung wählt die gesperrte Seite. Ziehen setzt eine Linie.'
+  } else if (tool === 'securityGate') {
+    contextHelp.textContent =
+      'Festival-Einlass auf einen Weg setzen. Die Baurichtung zeigt ins Gelände; im Objektfenster lässt sich der Besucheranteil einstellen.'
   } else if (tool === 'crosswalk') {
     contextHelp.textContent = 'Straße anklicken, um einen Zebrastreifen umzuschalten.'
   } else if (
@@ -2698,7 +2816,112 @@ function updateVisitorPanel(): void {
   motivationOutput.textContent = `${motivationValue}%`
 }
 
+function closeRideBuilder(resetTool = true): void {
+  activeRideId = null
+  rideAccessPlacement = null
+  view.setRideAccessPreview(null)
+  const panel = requireElement<HTMLElement>('#ride-builder')
+  panel.hidden = true; panel.classList.remove('visible')
+  if (resetTool) game.setTool('inspect')
+}
+
+function openRideBuilder(id: string): void {
+  const ride = game.snapshot.buildings.find(b=>b.id===id && b.kind==='ride')
+  if (!ride) return
+  closeRideBuilder(false)
+  if (coasterBuilderActive) closeCoasterBuilder()
+  if (pathEditorActive) closePathEditor()
+  closeEntityPanel(); closeBuildMenu(); closeBulldozeMenu(); supplyPlanner.releaseTool()
+  selectedVisitorId=null; followedVisitorId=null; view.followVisitor(null)
+  visitorPanel.classList.remove('visible')
+  activeRideId=id; bungeeBuildMode=false; view.bungeePreviewHeight=null
+  requireElement<HTMLInputElement>('#ride-target-height').value=String(ride.bungeeHeight ?? 20)
+  const panel=requireElement<HTMLElement>('#ride-builder')
+  panel.hidden=false; panel.classList.add('visible')
+  game.setTool('inspect')
+  updateRideBuilder()
+}
+
+function updateRideBuilder(): void {
+  if (!activeRideId) return
+  const ride=game.snapshot.buildings.find(b=>b.id===activeRideId && b.kind==='ride')
+  if (!ride) { closeRideBuilder(false); return }
+  requireElement('#ride-builder-name').textContent=ride.rideType==='bungee'?'Bungee-Turm bauen':'Karussell bauen'
+  requireElement('#ride-builder-status').textContent=game.getRideAccessIssue(ride) ?? 'Ein- und Ausgang angeschlossen. Konstruktion vollständig.'
+  for (const type of ['entrance','exit'] as const) {
+    const access=ride[type==='entrance'?'rideEntrance':'rideExit']
+    const button=requireElement<HTMLButtonElement>(`#ride-${type}`)
+    button.setAttribute('aria-pressed',String(rideAccessPlacement?.type===type))
+    button.classList.toggle('active',rideAccessPlacement?.type===type)
+    requireElement(`#ride-${type}-state`).textContent=access?'Versetzen':`Bauen · ${formatMoney(SIMULATION_CONFIG.economy.coasterAccessCost)}`
+  }
+  const mode=rideAccessPlacement?.type
+  requireElement('#ride-builder').classList.toggle('placing-access',Boolean(mode))
+  requireElement('#ride-placement-help').textContent=mode
+    ? `${mode==='entrance'?'Eingang':'Ausgang'}: freies Feld direkt neben dem Fahrgeschäft wählen. Danach ${mode==='entrance'?'Warteweg':'normalen Gehweg'} anschließen.`
+    : 'Eingang oder Ausgang wählen und auf ein freies Nachbarfeld setzen.'
+  requireElement<HTMLElement>('#cancel-ride-access').hidden=!mode
+  requireElement('#ride-access-status').textContent=`Eingang: ${ride.rideEntrance ? `${ride.rideEntrance.x}, ${ride.rideEntrance.z}`:'fehlt'} · Ausgang: ${ride.rideExit ? `${ride.rideExit.x}, ${ride.rideExit.z}`:'fehlt'}`
+  requireElement('#ride-platform-height').textContent=`Plattform: Ebene ${ride.elevation}. Zugänge werden automatisch auf dieser Höhe gebaut.`
+  requireElement<HTMLElement>('#ride-tower-construction').hidden=ride.rideType!=='bungee'
+  if (ride.rideType==='bungee') {
+    const height=Number(requireElement<HTMLInputElement>('#ride-target-height').value), current=ride.bungeeHeight ?? 20
+    const valid=Number.isInteger(height) && height>=4 && height<=200
+    const cost=Math.max(0,height-current)*25
+    requireElement('#ride-built-height').textContent=`Gebaut: ${current} m · 4–200 m möglich · 25 € pro zusätzlichem Meter`
+    const button=requireElement<HTMLButtonElement>('#ride-build-height')
+    button.disabled=!valid || height===current || cost>game.snapshot.money
+    button.textContent=!valid?'4–200 Meter wählen':height<current?'Turm verkürzen':`Höhe bauen · ${formatMoney(cost)}`
+  }
+}
+
+function cancelRideAccessPlacement(): void {
+  rideAccessPlacement=null; view.setRideAccessPreview(null)
+  game.setTool('inspect'); updateRideBuilder()
+}
+function updateRideAccessPreview(cell: CellPosition | null): void {
+  const target=rideAccessPlacement && game.snapshot.buildings.find(b=>b.id===rideAccessPlacement!.id)
+  if (!cell || !target || !rideAccessPlacement) {view.setRideAccessPreview(null);return}
+  const result=game.canPlaceRideAccess(target.id,rideAccessPlacement.type,cell.x,cell.z)
+  view.setRideAccessPreview({x:cell.x,y:target.elevation,z:cell.z,type:rideAccessPlacement.type,theme:target.rideType==='bungee'?'bungee':'carousel',valid:result.ok,rotation:Math.atan2(target.x-cell.x,target.z-cell.z)})
+}
+function startRideAccessPlacement(id:string,type:'entrance'|'exit'): void {
+  if (activeRideId!==id) openRideBuilder(id)
+  if (activeRideId!==id) return
+  rideAccessPlacement={id,type}
+  game.setTool('ride'); updateRideBuilder(); updateRideAccessPreview(hoveredCell)
+  showToast(`${type==='entrance'?'Eingang':'Ausgang'}: freies Nachbarfeld wählen`)
+}
+requireElement('#ride-entrance').addEventListener('click',()=>{if(activeRideId)startRideAccessPlacement(activeRideId,'entrance')})
+requireElement('#ride-exit').addEventListener('click',()=>{if(activeRideId)startRideAccessPlacement(activeRideId,'exit')})
+requireElement('#cancel-ride-access').addEventListener('click',cancelRideAccessPlacement)
+for (const id of ['close-ride-builder','finish-ride-builder']) requireElement(`#${id}`).addEventListener('click',()=>closeRideBuilder())
+requireElement('#open-ride-construction').addEventListener('click',()=>{if(selectedEntity?.type==='building')openRideBuilder(selectedEntity.id)})
+requireElement('#ride-builder-info').addEventListener('click',()=>{
+  const id=activeRideId
+  closeRideBuilder()
+  if (id) openEntityInfoForBuilding(id)
+})
+requireElement('#ride-target-height').addEventListener('input',updateRideBuilder)
+makeDraggable(requireElement<HTMLElement>('#ride-builder .construction-title'), requireElement<HTMLElement>('#ride-builder'))
+for (const [id,delta] of [['ride-height-down',-4],['ride-height-up',4]] as const) requireElement(`#${id}`).addEventListener('click',()=>{
+  cancelRideAccessPlacement()
+  const input=requireElement<HTMLInputElement>('#ride-target-height')
+  input.value=String(Math.max(4,Math.min(200,(Number(input.value)||4)+delta)))
+  updateRideBuilder()
+})
+requireElement('#ride-build-height').addEventListener('click',()=>{
+  if (!activeRideId) return
+  cancelRideAccessPlacement()
+  const result=game.setBungeeHeight(activeRideId,Number(requireElement<HTMLInputElement>('#ride-target-height').value))
+  updateRideBuilder(); showToast(result.message,!result.ok)
+})
+window.addEventListener('keydown',event=>{
+  if(event.key!=='Escape' || !activeRideId)return
+  if(rideAccessPlacement)cancelRideAccessPlacement();else closeRideBuilder()
+})
 function openEntityInfoForBuilding(buildingId: string): void {
+  closeRideBuilder(false)
   selectedEntity = { type: 'building', id: buildingId }
   entityTab = 'overview'
   selectedVisitorId = null
@@ -2710,6 +2933,7 @@ function openEntityInfoForBuilding(buildingId: string): void {
 }
 
 function openEntityInfoForCoaster(coasterId: string): void {
+  closeRideBuilder(false)
   selectedEntity = { type: 'coaster', id: coasterId }
   entityTab = 'overview'
   selectedVisitorId = null
@@ -2721,6 +2945,7 @@ function openEntityInfoForCoaster(coasterId: string): void {
 }
 
 function updateEntityPanel(): void {
+  requireElement<HTMLElement>('#open-ride-construction').hidden=true
   editStageButton.hidden = true
   if (!selectedEntity) return
   if (selectedEntity.type === 'building') {
@@ -2733,7 +2958,8 @@ function updateEntityPanel(): void {
     const definition = BUILDINGS[building.kind]
     entityIcon.textContent = definition.icon
     entityType.textContent = 'Gebäude'
-    entityName.textContent = definition.name
+    entityName.textContent = building.rideType === 'bungee' ? `Bungee-Turm · ${building.bungeeHeight ?? 20} m` : definition.name
+    requireElement<HTMLElement>('#open-ride-construction').hidden=building.kind!=='ride'
     const scheduledActive = game.isBuildingCurrentlyActive(building)
     const needsPower = (SIMULATION_CONFIG.power.demand[building.kind] ?? 0) > 0
     const hasPower = game.isBuildingPowered(building.id)
@@ -2741,7 +2967,7 @@ function updateEntityPanel(): void {
       building.kind === 'stage' &&
       game.isOfferCurrentlyActive('stages')
     entityStatus.textContent =
-      needsPower && !hasPower
+      game.getRideAccessIssue(building) ?? (needsPower && !hasPower
         ? 'Kein Strom – Kabel zum Generator verlegen'
       : stageDayPlanActive && !scheduledActive
         ? `☕ ${building.bandName ?? 'Band'} macht 30 Minuten Pause`
@@ -2755,14 +2981,14 @@ function updateEntityPanel(): void {
             ? 'Beschallt die Umgebung in alle Richtungen'
             : building.kind === 'wasteBin'
               ? `Füllstand ${building.wasteFill ?? 0}/${SIMULATION_CONFIG.waste.binCapacity} · Gäste im Umkreis von 7 Feldern nutzen ihn`
-            : `Zugang ${getIsoDirectionIcon(building.rotation)} · Ebene ${building.elevation}`
+            : `Zugang ${getIsoDirectionIcon(building.rotation)} · Ebene ${building.elevation}`)
     const demand = SIMULATION_CONFIG.power.demand[building.kind] ?? 0
     const output = SIMULATION_CONFIG.power.output[building.kind] ?? 0
     entityStats.innerHTML = `
       <span>Baukosten <b>${formatMoney(definition.cost + (building.stageDesign ? stageStats(building.stageDesign).cost : 0))}</b></span>
       ${building.stageDesign ? `<span>Eigene Bühne <b>${escapeHtml(building.stageDesign.name)}</b></span><span>Party / Umgebung <b>${stageStats(building.stageDesign).party} / ${stageStats(building.stageDesign).beauty}</b></span><span>Technik zusätzlich <b>${stageStats(building.stageDesign).power} kW · ${stageStats(building.stageDesign).upkeep} €/h</b></span>` : ''}
       <span>Unterhalt <b>${formatMoney(definition.upkeep)}/h</b></span>
-      <span>Kapazität <b>${definition.capacity}</b></span>
+      <span>Kapazität <b>${building.rideType === 'bungee' ? '1 Springer' : definition.capacity}</b></span>
       ${['food','alcohol','toilet'].includes(building.kind) ? `<span>Warenbestand <b>${Math.floor(game.snapshot.festival.infrastructure.shops[building.id]?.[building.kind==='food'?'food':building.kind==='alcohol'?'drinks':'water']??0)} / Ziel 40</b></span>` : ''}
       ${
         building.kind === 'wasteBin'
@@ -2806,6 +3032,10 @@ function updateEntityPanel(): void {
         securityThoroughness.value = String(Math.round(config.thoroughness * 100))
       }
       securityThoroughnessValue.textContent = `${Math.round(config.thoroughness * 100)}%`
+      if (document.activeElement !== securityFlowShare) {
+        securityFlowShare.value = String(Math.round(config.flowShare * 100))
+      }
+      securityFlowShareValue.textContent = `${Math.round(config.flowShare * 100)}%`
       const itemsFingerprint = `${building.id}:${[...config.prohibitedItems].sort().join(',')}`
       if (itemsFingerprint !== securityItemsFingerprint) {
         securityItemsFingerprint = itemsFingerprint
@@ -3053,6 +3283,7 @@ function drawTelemetryChart(coaster: Coaster): void {
 }
 
 function closeEntityPanel(): void {
+  if (rideAccessPlacement) cancelRideAccessPlacement()
   selectedEntity = null
   entityPanel.classList.remove('visible')
 }
@@ -3098,6 +3329,9 @@ document.addEventListener('pointerdown', (event) => {
 document.querySelectorAll<HTMLButtonElement>('.build-menu [data-tool]').forEach((button) => {
   button.addEventListener('click', () => {
     const tool = button.dataset.tool as Tool
+    closeRideBuilder(false)
+    bungeeBuildMode = button.dataset.bungee === 'true'
+    view.bungeePreviewHeight = bungeeBuildMode ? Math.max(4, Math.min(200, Number(requireElement<HTMLInputElement>('#bungee-height').value) || 20)) : null
     if (tool === 'coaster') {
       openCoasterBuilder()
       return
@@ -3199,6 +3433,11 @@ const closeDebugMenu = (): void => {
   debugMenuPanel.classList.remove('open')
   debugMenuToggle.setAttribute('aria-expanded', 'false')
 }
+requireElement<HTMLButtonElement>('#debug-clear-waste').addEventListener('click', () => {
+  const result = game.clearWasteForDebug()
+  closeDebugMenu()
+  showToast(result.message, !result.ok)
+})
 debugMenuToggle.addEventListener('click', () => {
   closeSaveMenu()
   const open = debugMenuPanel.classList.toggle('open')
@@ -3252,6 +3491,7 @@ infoButton.addEventListener('click', () => {
   game.setTool('inspect')
 })
 buildMenuToggle.addEventListener('click', () => {
+  if (activeRideId) closeRideBuilder()
   if (!buildMenuPanel.hidden) {
     closeBuildMenu()
     activateInfoIfNothingOpen()
@@ -3657,6 +3897,15 @@ securityThoroughness.addEventListener('change', () => {
   if (selectedEntity?.type !== 'building') return
   game.updateSecurityGate(selectedEntity.id, {
     thoroughness: Number(securityThoroughness.value) / 100,
+  })
+})
+securityFlowShare.addEventListener('input', () => {
+  securityFlowShareValue.textContent = `${securityFlowShare.value}%`
+})
+securityFlowShare.addEventListener('change', () => {
+  if (selectedEntity?.type !== 'building') return
+  game.updateSecurityGate(selectedEntity.id, {
+    flowShare: Number(securityFlowShare.value) / 100,
   })
 })
 securityProhibitedItems.addEventListener('change', () => {

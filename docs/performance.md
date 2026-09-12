@@ -68,3 +68,109 @@ Run `npm test` and `npm run build` for changes in these systems.
 No timing threshold is enforced in shared CI because hardware varies. Structural
 work bounds fail deterministically; the saved-scenario benchmark is the additional
 manual check against CPU regressions.
+
+Terrain detail (0.1.9) uses one static merged surface mesh and a deterministic
+256×512 pixel material atlas. All soil types and prepared surfaces share that
+single draw call. Rebuild only after terrain, environment, surface/compaction,
+or building/area footprint edits; rain changes a material tint, not geometry. Adjacent natural soils blend
+at shared corners, while constructed surfaces keep their exact tile boundary.
+The atlas uses nearest magnification and mipmaps for a stable distant view.
+TerrainShape caches four shared corner heights and the saved centre height per
+cell. Four triangles make automatic slopes; buildings, paths and designated areas
+retain flat pads. A second merged mesh draws only world borders and retaining
+edges between incompatible pad heights, replacing the former terrain cubes.
+The lake bed lies below the existing water planes. Actor/scenery height queries
+sample the same triangles in constant time without raycasts or visitor scans.
+Authoritative integer terrain and navigation heights remain unchanged.
+`tests/terrainSurface.ts` covers geometry bounds, seamless slopes, flat pads,
+raycast/actor contact, material selection, save/reload stability, and absence of
+simulation mutations.
+
+Festival construction additions (0.1.13): camping grass shares one texture and
+instanced tiles; an exterior flood fill rebuilds the discontinuous curb only on
+area edits. Festival scenery remains shared/merged and supports one deterministic
+line-placement command. Debug waste cleanup uses a single owner index and preserves
+active camping property and fire incidents.
+
+Coaster segment lengths and frames are cached per coaster, invalidated by the
+piece-ID/chain signature, then sampled with binary search. Do not rebuild and scan
+all sampled track points for every car/physics substep. New slopes end on integer
+height differences; old saved points are preserved. Loop frames retain a fixed
+reference heading through vertical tangents so rails and cars do not flip.
+Photo purchases and braking/water resistance run in simulation ticks. Bungee
+towers use one static mesh, one rider and one rope, with one active visitor at a
+time; visuals derive from the authoritative interaction timer. Heights and busy
+visitor IDs persist through saves and multiplayer.
+
+Validation on the existing rtest3 save, 120 calls: median/p95/max CPU milliseconds
+were 7.59/20.83/46.16 at 1x (1106 visitors), 11.26/24.26/38.12 at 3x (1126),
+18.80/30.19/41.14 at 8x (1191). For 1200 calls: 6.85/17.39/50.92 at 1x (1180),
+9.30/23.20/66.22 at 3x (566), 14.65/34.05/169.87 at 8x (40).
+These are validation measurements with concurrent local development, not an
+isolated before/after claim or browser FPS. The 8x long run nearly empties the park;
+its lower average does not establish faster crowded rendering. Tests cover actual
+special-piece construction, continuous loop orientation, brake/splash resistance,
+one photo charge per passage, bungee exclusivity/payment, save/network metadata,
+camp perimeter seams and debug cleanup.
+
+Pixel people (0.1.14): four shared, vertex-coloured geometries provide torso,
+head/face, hip-pivoted legs with shoes, and shoulder-pivoted arms with hands.
+The existing six visitor instance batches remain the picking targets. Eight
+additional compact batches contain merged hair/headwear, bags and festival passes;
+their draw count is independent of population. Each visible guest writes one
+accessory instance, and counts reset every frame to remove departed/hidden guests.
+Do not turn these details into individual scene objects per visitor. All variants
+stay below 1600 vertices per complete person, without character shadows.
+Appearance derives from a stable hash of the full visitor ID, never array position,
+simulation RNG or frame time. Staff reuse the same shared parts. Distant guests
+keep complete limbs while using the existing cheaper animation path.
+`tests/pixelPeople.ts` verifies 10,000-person batch bounds, cached geometry,
+save/reorder appearance, varied palettes and removal of stale accessories.
+`tests/people-preview.html` is a development-only close-up visual fixture; it uses
+the actual production geometries and can be opened through the Vite server.
+
+Carousel/bungee access (introduced in 0.1.15): optional `rideEntrance` and
+`rideExit` belong to the placed building and survive saves and multiplayer worlds.
+Each gate reserves a separate adjacent cell. Legacy rides without gates remain
+closed until the player places and connects them in the ride construction panel.
+Entrance queues use the same directional queue traversal as coasters. Finished
+riders exit through the chosen exit; a removed exit path delays release without
+repeated charges. Gate edits invalidate the building spatial index and navigation.
+Gate collision queries use that spatial index; access path checks inspect only
+four neighboring cells rather than scanning all buildings per guest.
+`tests/rideAccess.ts` covers both ride types, placement, queue routing, interrupted
+exit connections, removal, save round trips and optimistic multiplayer reconciliation.
+
+Attraction access visuals (0.1.23): `attractionAccess.ts` caches six merged,
+vertex-colored entrance/exit meshes across carousel, bungee and coaster themes.
+Ride gates use the existing static instancing pass; details never add individual
+draw calls. Placement previews reuse geometry but own their tint material, so
+preview disposal or invalid-placement colors cannot affect built gates.
+Coaster access positions participate in the render fingerprint, including moves.
+`tests/access-preview.html` displays all six production models; performance guards
+check shared geometry, tile bounds, preview ownership and six instanced batches.
+
+Female silhouettes (0.1.18): the persistent ID-derived female flag selects a
+shared tailored torso, narrower shoulder pivots and eight matching hair/outfit
+variants. Three variants use stepped skirts, the others retain trousers.
+Male/female and clothed/bare accessories use at most 32 instance batches total,
+independent of crowd size; never create individual hair or clothing meshes per
+guest. Female staff reuse the torso and tied-hair geometry with their uniforms.
+The model regression counts all rendered clothed body parts (including the bust)
+against the 1600-vertex budget and checks 10,000-guest instance counts, stable
+appearance and both skirt/trouser alternatives.
+
+Camping models (0.1.20): four tent silhouettes and three pavilion silhouettes
+each share one merged fabric geometry and one merged detail geometry. Seams,
+doors, poles, ropes, pegs and furniture do not add individual draw calls. Across
+all seven shapes the camping batcher emits 14 batches, regardless of prop count,
+plus the existing cart/chair/music-box batches. Custom BufferGeometry buckets
+must key by geometry identity, not only geometry type/constructor parameters;
+otherwise different silhouettes collapse to the first model. Batch copies own
+their resources and must copy userData before clearing the shared flag.
+Each model stays within its tile and below 1800 vertices, checked by
+`tests/campingModels.ts`. Appearance uses stable IDs, without simulation RNG or
+frame-time input. Optional appearanceId/fabricColor on abandoned tents retain
+the original tent's shape, orientation and color through departure and saves.
+Legacy abandoned tents retain their brown fallback; wear fades in linear color
+space. `tests/camping-preview.html` shows the production models with orbit controls.

@@ -50,6 +50,8 @@ function packVisitor(visitor: Visitor): PackedVisitor {
     emotion: visitor.emotion,
     alcoholLevel: visitor.alcoholLevel,
     streakingMinutes: visitor.streakingMinutes,
+    toplessMinutes: visitor.toplessMinutes,
+    bungeeNude: visitor.bungeeNude,
     tileOffsetX: visitor.tileOffsetX,
     tileOffsetZ: visitor.tileOffsetZ,
     isDancing: visitor.isDancing,
@@ -130,6 +132,8 @@ function mergeVisitors(snapshot: GameSnapshot, packed: PackedVisitor[]): void {
     visitor.emotion = item.emotion
     visitor.alcoholLevel = item.alcoholLevel
     visitor.streakingMinutes = item.streakingMinutes
+    visitor.toplessMinutes = item.toplessMinutes ?? 0
+    visitor.bungeeNude = Boolean(item.bungeeNude)
     visitor.tileOffsetX = item.tileOffsetX
     visitor.tileOffsetZ = item.tileOffsetZ
     visitor.isDancing = item.isDancing
@@ -240,6 +244,8 @@ function createRemoteVisitor(item: PackedVisitor): Visitor {
     pendingWaste: 0,
     streakingMinutes: item.streakingMinutes,
     streakingCooldownMinutes: 0,
+    toplessMinutes: item.toplessMinutes ?? 0,
+    bungeeNude: Boolean(item.bungeeNude),
     pathSeed: hashStringSeed(item.id),
     wanderNonce: 0,
   }

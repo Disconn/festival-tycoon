@@ -3,6 +3,9 @@ import type { GameCommand } from './protocol'
 
 export function applyGameCommand(game: GameState, command: GameCommand): ActionResult {
   switch (command.type) {
+    case 'setRideAccess': return game.setRideAccess(command.buildingId, command.accessType, command.x, command.z)
+    case 'placeBungee': return game.placeBungee(command.x, command.z, command.height)
+    case 'setBungeeHeight': return game.setBungeeHeight(command.id, command.height)
     case 'festival':
       return game.manageFestival(command.action)
     case 'place':
@@ -149,6 +152,10 @@ export function applyGameCommand(game: GameState, command: GameCommand): ActionR
       )
     case 'addDebugMoney':
       return game.addDebugMoney()
+    case 'clearWasteForDebug':
+      return game.clearWasteForDebug()
+    case 'placeSceneryLine':
+      return game.placeSceneryLine(command.kind, command.cells, command.slot, command.rotation)
     case 'removeVisitorCars':
       return game.removeVisitorCarsForDebug()
   }

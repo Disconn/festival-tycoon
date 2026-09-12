@@ -2,14 +2,14 @@ import { musicTaste, musicAppeal, type MusicGenre } from './musicTaste'
 import { isScenery, isEdgeScenery, sceneryOverlaps, sceneryTransform } from './scenery'
 import { syncStageAudience } from './stageAudience'
 import { stageSiteIssue } from './stageSite'
-import { isStageAudienceCell, stageDistance, buildingFootprint, occupiesBuildingCell, stageDesignIssue, stageStats, type StageDesign } from './stageDesign'
+import { isStageAudienceCell, stageDistance, stageSize, buildingFootprint, occupiesBuildingCell, stageDesignIssue, stageStats, type StageDesign } from './stageDesign'
 import { WAY_TYPES, wayInfo, wayIssue } from './wayTypes'
 import type { WayType } from './wayTypes'
 import { groundRectangle } from './ground'
 import { createInfrastructure, updateSupplyChain, localStock, consumeLocal } from './supplyChain'
 import { groundInfo, groundKey, buildingEfficiency, roadGroundLimit } from './ground'
 import { BUILDINGS, SAVE_KEY, SAVE_SLOTS_KEY } from './catalog'
-import { createFestivalManagement, festivalAction, updateFestival, assignAudience, activeBookings, showIssue, BANDS } from './festivalManagement'
+import { createFestivalManagement, festivalAction, updateFestival, assignAudience, activeBookings, watchableBookings, showIssue, BANDS } from './festivalManagement'
 import type { FestivalManagement, FestivalAction, Audience, Booking } from './festivalManagement'
 import {
   createDefaultScenarioSettings,
@@ -74,12 +74,13 @@ import {
   panicSpreadChance,
   spontaneousPanicChance,
 } from './visitorBubbles'
+import { CONCERT_TOPLESS_CROWD_THOUGHT, CONCERT_TOPLESS_THOUGHT } from './visitorThoughts'
 import {
   createPathScratch,
   createSeededRng,
   findWeightedPath,
 } from './pathfinding'
-import { DeterministicRng, hashStringSeed } from './rng'
+import { DeterministicRng, hashStringSeed, rollsBungeeNude, visitorLooksFemale } from './rng'
 import { applyGameCommand } from '../net/commands'
 import { allowsPathFlow, normalizeFlowDirection } from './pathFlow'
 import { createStaffMember, STAFF_DEFINITIONS } from './staff'
@@ -170,6 +171,11 @@ import type { TerrainEditMode, TerrainSnapshot } from './terrain'
 export type Cell = { x: number; z: number; elevation: number }
 
 export type PlacedBuilding = {
+  rideEntrance?: { x: number; y: number; z: number }
+  rideExit?: { x: number; y: number; z: number }
+  rideType?: 'bungee'
+  bungeeHeight?: number
+  bungeeVisitorId?: string
   decorationSlot?: number
   id: string
   kind: BuildingKind
@@ -310,6 +316,8 @@ export type Visitor = {
   pendingWaste: number
   streakingMinutes: number
   streakingCooldownMinutes: number
+  toplessMinutes: number
+  bungeeNude: boolean
   pathSeed: number
   wanderNonce: number
   netX?: number
@@ -394,24 +402,47 @@ const VISITOR_SPAWN_INTERVAL_MINUTES =
   SIMULATION_CONFIG.visitors.spawnIntervalMinutes
 const BOARDING_MINUTES_PER_PERSON =
   SIMULATION_CONFIG.coasters.boardingMinutesPerPerson
-const VISITOR_NAMES = [
-  'Alex',
+export const FEMALE_VISITOR_NAMES = [
   'Mia',
-  'Luca',
   'Emma',
-  'Noah',
   'Lea',
-  'Finn',
   'Lina',
-  'Ben',
   'Sofia',
-  'Elias',
   'Mila',
-  'Jonas',
   'Nina',
-  'Paul',
   'Marie',
+  'Hannah',
+  'Clara',
+  'Ida',
+  'Greta',
+  'Lara',
+  'Pia',
+  'Anna',
+  'Luisa',
 ]
+export const MALE_VISITOR_NAMES = [
+  'Noah',
+  'Finn',
+  'Ben',
+  'Elias',
+  'Jonas',
+  'Paul',
+  'Leon',
+  'Max',
+  'Theo',
+  'Otto',
+  'Jan',
+  'Felix',
+  'Luis',
+  'Oskar',
+  'Karl',
+  'Tim',
+]
+
+export function visitorGivenName(id: string, salt = 0): string {
+  const names = visitorLooksFemale(id) ? FEMALE_VISITOR_NAMES : MALE_VISITOR_NAMES
+  return names[(hashStringSeed(id) + salt) % names.length]!
+}
 const BAND_NAMES = ['Neon Echo', 'Festival Riot', 'Moonlight Avenue', 'Bassgarten']
 const PEDESTRIAN_SOLID_KINDS = new Set<BuildingKind>([
   'food',
@@ -574,6 +605,7 @@ export class GameState {
   private crowding = new CrowdingSystem()
   private crowdingCosts = new Map<string, number>()
   private buildingCellIndex = new Map<number, PlacedBuilding[]>()
+  private rideAccessIndex = new Map<number, Array<{ building: PlacedBuilding; type: 'entrance' | 'exit'; point: { x: number; y: number; z: number } }>>()
   private pathExactIndex = new Map<number, PlacedBuilding>()
   private parkingIndex = new Map<number, true>()
   private medicalIndex = new Map<number, MedicalCell>()
@@ -601,6 +633,7 @@ export class GameState {
   private pedestrianNav = new Map<number, PedestrianNavNode>()
   private pedestrianNavKey = ''
   private visitorIndex = new Map<string, Visitor>()
+  private facilityQueues = new Map<string, string[]>()
   private indexedVisitorCount = -1
   private occupancyTick = -1
   private activityHeadcount = new Map<string, number>()
@@ -628,6 +661,9 @@ export class GameState {
   private concertChoices:Array<{booking:Booking;band:(typeof BANDS)[number];stage:GameSnapshot['buildings'][number]}>=[]
   private concertSlotTick = -1
   private concertSlots = new Map<number, Set<number>>()
+  private concertForecourtByStage = new Map<string, StageForecourtCell[]>()
+  private concertForecourtStageIds = new Map<number, string>()
+  private danceFloorFocusByStage = new Map<string, { x: number; z: number }>()
   /** Local diagnostic counter; deliberately excluded from saves and network state. */
   executedLogicTicks = 0
   networkMode: 'solo' | 'host' | 'client' = 'solo'
@@ -782,6 +818,7 @@ export class GameState {
       }
       if (building.kind === 'securityGate') {
         building.securityConfig ??= structuredClone(DEFAULT_SECURITY_CONFIG)
+        building.securityConfig.flowShare ??= DEFAULT_SECURITY_CONFIG.flowShare
       }
       if (building.kind === 'stage') {
         building.bandName ??=
@@ -907,7 +944,18 @@ export class GameState {
       visitor.pendingWaste ??= 0
       visitor.streakingMinutes ??= 0
       visitor.streakingCooldownMinutes ??= 0
+      visitor.toplessMinutes ??= 0
+      visitor.bungeeNude ??= false
       visitor.pathSeed ??= hashStringSeed(visitor.id)
+      const given = visitor.name.split(' ')[0] ?? ''
+      const female = visitorLooksFemale(visitor.id)
+      if (
+        (female && !FEMALE_VISITOR_NAMES.includes(given)) ||
+        (!female && !MALE_VISITOR_NAMES.includes(given))
+      ) {
+        const suffix = visitor.name.split(' ').slice(1).join(' ')
+        visitor.name = `${visitorGivenName(visitor.id)} ${suffix}`.trim()
+      }
       visitor.wanderNonce ??= 0
       visitor.route = visitor.route.map((cell) => ({
         ...cell,
@@ -1007,13 +1055,13 @@ export class GameState {
       return ['ground', 'groundArea', 'depot', 'removeDepot', 'staffGate', 'wayArea', 'stageDesign'].includes(command.action.type)
     }
     return [
-      'place', 'placePath', 'undoPath', 'bulldoze', 'bulldozeArea', 'editTerrain',
+      'place', 'placeBungee', 'setBungeeHeight', 'placeSceneryLine', 'placePath', 'undoPath', 'bulldoze', 'bulldozeArea', 'editTerrain',
       'designateRoad', 'designateParking', 'designateCampingCell',
       'designateCampingArea', 'designateMedicalArea', 'designateWasteDump',
       'designateStageForecourt', 'designatePowerCable', 'designatePowerCableArea',
       'setRoadDirection', 'toggleRoadSeparator', 'toggleCrosswalk', 'setRoadSpeed',
       'setPathFlow', 'startCoaster', 'appendCoasterPiece', 'undoCoasterPiece',
-      'deleteCoasterPiece', 'setCoasterAccess',
+      'deleteCoasterPiece', 'setCoasterAccess', 'setRideAccess',
     ].includes(command.type)
   }
 
@@ -1194,7 +1242,7 @@ export class GameState {
   manageFestival(action: FestivalAction): ActionResult {
     const blocked = this.gate({ type: 'festival', action })
     if (blocked) return blocked
-    if (action.type === 'depot' && (this.isLogisticsBuildingCell(action.x, action.z) || this.coasterOccupiesVolume(action.x, action.z, this.getTerrainHeight(action.x, action.z), 1))) return { ok: false, message: 'Diese Fläche ist bereits bebaut' }
+    if (action.type === 'depot' && (this.getRideAccessAt(action.x, action.z) || this.isLogisticsBuildingCell(action.x, action.z) || this.coasterOccupiesVolume(action.x, action.z, this.getTerrainHeight(action.x, action.z), 1))) return { ok: false, message: 'Diese Fläche ist bereits bebaut' }
     if (action.type === 'stageDesign' && action.stageId) {
       const invalid = stageDesignIssue(action.design)
       if(invalid)return {ok:false,message:invalid}
@@ -1398,6 +1446,7 @@ export class GameState {
     this.clearVisitorActivity(visitor)
     this.removeVisitorFromCoasterQueues(visitor.id)
     visitor.streakingMinutes = 0
+    visitor.toplessMinutes = 0
     this.medical.releaseBed(this.state.medicalCells, visitor.id)
     visitor.medicalCell = null
     visitor.medicalSlot = null
@@ -1638,6 +1687,7 @@ export class GameState {
     })
     this.state.stageForecourtCells = result.cells
     this.state.money -= result.cost
+    if (result.placed > 0) this.recalculateQueueDirections()
     this.emit()
     return {
       ok: result.placed > 0,
@@ -1684,12 +1734,18 @@ export class GameState {
         0,
         Math.min(1, config.thoroughness ?? gate.securityConfig?.thoroughness ?? 0.5),
       ),
+      flowShare: Math.max(
+        0,
+        Math.min(1, config.flowShare ?? gate.securityConfig?.flowShare ?? 1),
+      ),
     }
     this.emit()
     return { ok: true, message: 'Sicherheitseinstellungen gespeichert' }
   }
 
   getAt(x: number, z: number, elevation?: number, localX?: number, localZ?: number): PlacedBuilding | undefined {
+    const gate = this.getRideAccessAt(x, z, elevation)
+    if (gate) return gate.building
     const matches = this.getBuildingsAtCell(x, z).filter(
       (item) =>
         elevation === undefined || this.volumesOverlap(item, elevation, 0.01),
@@ -1928,13 +1984,11 @@ export class GameState {
         message: 'Vor einer Station müssen Steigung und Seitenneigung ausgeleitet werden',
       }
     }
-    if (definition.turn) {
-      if (Math.abs(anchorPiece.end.bank) < 0.001) {
-        return {
-          ok: false,
-          message: 'Vor einer Kurve muss eine passende Seitenneigung eingeleitet werden',
-        }
-      }
+    if (definition.special && (Math.abs(anchorPiece.end.pitch) > .001 || Math.abs(anchorPiece.end.bank - (kind === 'halfLoopDown' ? Math.PI : 0)) > .001)) {
+      return { ok: false, message: kind === 'halfLoopDown' ? 'Dieses Element benötigt einen waagerechten Anschluss auf dem Kopf' : 'Dieses Element benötigt einen waagerechten, ungekippten Anschluss' }
+    }
+    if (Math.abs(anchorPiece.end.bank) > 2 && kind !== 'straight' && kind !== 'halfLoopDown') return { ok: false, message: 'Kopfüber: Gerade oder halben Looping abwärts verwenden' }
+    if (definition.turn && Math.abs(anchorPiece.end.bank) > .001) {
       if (Math.sign(anchorPiece.end.bank) !== definition.turn) {
         return {
           ok: false,
@@ -2010,6 +2064,46 @@ export class GameState {
     return { ok: true, message: 'Letztes Schienenelement entfernt' }
   }
 
+  getRideAccessAt(x: number, z: number, elevation?: number) {
+    this.ensureSpatialIndexes()
+    return this.rideAccessIndex.get(this.packXZ(x, z))?.find(g => elevation === undefined || Math.abs(g.point.y - elevation) < .8)
+  }
+
+  getRideAccessIssue(building: PlacedBuilding): string | null {
+    if (building.kind !== 'ride') return null
+    if (!building.rideEntrance) return 'Eingang fehlt – im Konstruktionsfenster bauen'
+    if (!building.rideExit) return 'Ausgang fehlt – im Konstruktionsfenster bauen'
+    if (!this.getAccessPathNeighbors(building.rideEntrance).some(c => this.getPathAt(c.x, c.z, c.elevation)?.pathType === 'queue')) return 'Warteweg mit dem Eingang verbinden'
+    if (!this.getAccessPathNeighbors(building.rideExit).some(c => this.getPathAt(c.x, c.z, c.elevation)?.pathType !== 'queue')) return 'Ausgang mit einem normalen Gehweg verbinden'
+    return null
+  }
+
+  canPlaceRideAccess(buildingId: string, type: 'entrance' | 'exit', x: number, z: number): ActionResult {
+    const building = this.state.buildings.find(b => b.id === buildingId && b.kind === 'ride')
+    if (!building || !['entrance', 'exit'].includes(type)) return { ok: false, message: 'Fahrgeschäft nicht gefunden' }
+    if (!Number.isInteger(x) || !Number.isInteger(z) || !this.isInWorld(x,z) || Math.abs(x-building.x)+Math.abs(z-building.z)!==1) return { ok: false, message: 'Ein- und Ausgang direkt neben das Fahrgeschäft setzen' }
+    const own = type === 'entrance' ? building.rideEntrance : building.rideExit
+    if (own && this.state.visitors.some(v => v.targetId === building.id && v.state === 'using')) return { ok: false, message: 'Bitte die laufende Fahrt abwarten' }
+    const occupied = this.getRideAccessAt(x,z,building.elevation)
+    if ((occupied && (occupied.building.id !== buildingId || occupied.type !== type)) || this.findCollision('ride',x,z,building.elevation) || this.coasterOccupiesVolume(x,z,building.elevation,.8) || this.state.coasters.some(c => [c.entrance,c.exit].some(a=>a && a.x===x && a.z===z && Math.abs(a.y-building.elevation)<.8))) return { ok: false, message: 'Ein- und Ausgang brauchen eigene, freie Felder' }
+    if (this.getTerrainHeight(x,z)>building.elevation || this.isWaterTerrain(x,z) || this.getCampingCellAt(x,z) || this.getRoadCellAt(x,z) || this.getMedicalCellAt(x,z) || this.getWasteDumpAt(x,z) || this.getStageForecourtCellAt(x,z) || this.state.festival.infrastructure.depots.some(d=>d.x===x&&d.z===z)) return { ok: false, message: 'Dieses Feld ist für einen Zugang ungeeignet' }
+    const cost = own ? 0 : SIMULATION_CONFIG.economy.coasterAccessCost
+    if (this.state.logistics.parkingCells.some(c=>c.x===x && c.z===z)) return {ok:false,message:'Hier liegt bereits eine Parkfläche'}
+    return this.state.money < cost ? {ok:false,message:'Nicht genug Geld'} : {ok:true,message:`${type==='entrance'?'Eingang':'Ausgang'} bauen · ${cost} €`}
+  }
+
+  setRideAccess(buildingId: string, type: 'entrance' | 'exit', x: number, z: number): ActionResult {
+    const result = this.canPlaceRideAccess(buildingId,type,x,z)
+    if (!result.ok) return result
+    const building = this.state.buildings.find(b=>b.id===buildingId)!
+    const key = type === 'entrance' ? 'rideEntrance' : 'rideExit'
+    if (!building[key]) this.state.money -= SIMULATION_CONFIG.economy.coasterAccessCost
+    building[key] = {x,y:building.elevation,z}
+    this.indexedBuildingCount = -1
+    this.recalculateQueueDirections(); this.emit()
+    return {ok:true,message:type==='entrance'?'Eingang angebaut – Warteweg anschließen':'Ausgang angebaut – Gehweg anschließen'}
+  }
+
   setCoasterAccess(
     coasterId: string,
     accessType: 'entrance' | 'exit',
@@ -2025,7 +2119,7 @@ export class GameState {
     if (!station) {
       return { ok: false, message: 'Ein- und Ausgang müssen neben einer Stationsplattform liegen' }
     }
-    if (this.findCollision('path', x, z, station.start.elevation)) {
+    if (this.findCollision('path', x, z, station.start.elevation) || this.getRideAccessAt(x, z, station.start.elevation)) {
       return { ok: false, message: 'Dieses Feld ist belegt' }
     }
     const other = accessType === 'entrance' ? coaster.exit : coaster.entrance
@@ -2241,6 +2335,80 @@ export class GameState {
     }
   }
 
+  placeBungee(x: number, z: number, height: number): ActionResult {
+    if (!Number.isInteger(height) || height < 4 || height > 200) return { ok: false, message: 'Turmhöhe: 4 bis 200 Meter in Meterschritten' }
+    const elevation = this.getPlaceElevation(x, z)
+    const top = height / 4 + .4
+    if (this.coasterOccupiesVolume(x, z, elevation, top) || this.state.buildings.some(b => b.x === x && b.z === z && this.volumesOverlap(b, elevation, top))) return { ok: false, message: 'Über der Turmfläche muss Platz frei bleiben' }
+    if (this.state.money < BUILDINGS.ride.cost + height * 25) return { ok: false, message: 'Nicht genug Geld für diese Turmhöhe' }
+    const result = this.place('ride', x, z)
+    if (!result.ok) return result
+    const tower = this.state.buildings.at(-1)!
+    tower.rideType = 'bungee'; tower.bungeeHeight = height
+    this.state.money -= height * 25
+    this.emit()
+    return { ok: true, message: `Bungee-Turm (${height} m) gebaut` }
+  }
+
+  setBungeeHeight(id: string, height: number): ActionResult {
+    const tower = this.state.buildings.find(b => b.id === id && b.rideType === 'bungee')
+    if (!tower || !Number.isInteger(height) || height < 4 || height > 200) return { ok: false, message: 'Turmhöhe: 4 bis 200 Meter' }
+    if (this.state.visitors.some(v => v.targetId === id && v.state === 'using')) return { ok: false, message: 'Bitte den laufenden Sprung abwarten' }
+    const top = height / 4 + .4
+    if (this.coasterOccupiesVolume(tower.x, tower.z, tower.elevation, top) || this.state.buildings.some(b => b.id !== id && b.x === tower.x && b.z === tower.z && this.volumesOverlap(b, tower.elevation, top))) return { ok: false, message: 'Über der Turmfläche muss Platz frei bleiben' }
+    const cost = Math.max(0, height - (tower.bungeeHeight ?? 20)) * 25
+    if (this.state.money < cost) return { ok: false, message: 'Nicht genug Geld' }
+    this.state.money -= cost; tower.bungeeHeight = height; this.emit()
+    return { ok: true, message: `Turmhöhe auf ${height} m geändert` }
+  }
+
+  clearWasteForDebug(): ActionResult {
+    const living = new Set(this.state.visitors.map(v => v.id))
+    const removed = new Set(this.state.campInstallations.filter(c => !living.has(c.ownerId) && !c.contributorIds.some(id => living.has(id))).map(c => c.id))
+    const dirty = this.state.incidents.filter(i => i.kind === 'litter' || i.kind === 'vomit')
+    this.state.incidents = this.state.incidents.filter(i => i.kind !== 'litter' && i.kind !== 'vomit')
+    this.state.campInstallations = this.state.campInstallations.filter(c => !removed.has(c.id))
+    for (const b of this.state.buildings) if (b.kind === 'wasteBin') b.wasteFill = 0
+    for (const dump of this.state.wasteDumpCells) dump.stored = 0
+    for (const v of this.state.visitors) v.pendingWaste = 0
+    for (const member of this.state.staff) if (member.role === 'cleaner') {
+      member.carryingWaste = 0; member.wasteFromBin = false; member.targetId = null
+      member.route = []; member.workMinutes = 0; member.state = 'patrolling'
+    }
+    for (const vehicle of this.state.logistics.roadVehicles) if (vehicle.kind === 'garbageTruck') vehicle.cargo = 0
+    for (const route of this.state.festival.infrastructure.routes) if (route.kind === 'waste') {
+      route.cargo = 0; route.path = []; route.phase = 'idle'; route.targetId = ''; route.job = undefined
+    }
+    this.updateAtmosphere()
+    this.emit()
+    return { ok: true, message: `Debug: ${dirty.length} Müllstellen und ${removed.size} alte Gegenstände entfernt; Müllbehälter geleert` }
+  }
+
+  placeSceneryLine(
+    kind: BuildingKind,
+    cells: Array<{ x: number; z: number }>,
+    slot: number,
+    rotation = this.state.buildRotation,
+  ): ActionResult {
+    if (!isScenery(kind) || cells.length > this.getWorldSize() * 2 || !Number.isInteger(slot) || slot < 0 || slot > 3) return { ok: false, message: 'Ungültige Dekolinie' }
+    if (!Number.isInteger(rotation) || rotation < 0 || rotation > 3) return { ok: false, message: 'Ungültige Dekolinie' }
+    let placed = 0
+    const visited = new Set<string>()
+    const previousRotation = this.state.buildRotation
+    this.state.buildRotation = rotation
+    try {
+      for (const cell of cells) {
+        const key = `${cell.x},${cell.z}`
+        if (visited.has(key) || !Number.isInteger(cell.x) || !Number.isInteger(cell.z)) continue
+        visited.add(key)
+        if (this.place(kind, cell.x, cell.z, slot).ok) placed++
+      }
+    } finally {
+      this.state.buildRotation = previousRotation
+    }
+    return { ok: placed > 0, message: `${placed} Dekorationen platziert · ${cells.length - placed} übersprungen` }
+  }
+
   getRoadCellAt(x: number, z: number): RoadCell | undefined {
     return this.getRoadGraph().byKey.get(roadCellKey(x, z))
   }
@@ -2263,7 +2431,7 @@ export class GameState {
       if (!this.isInWorld(cell.x, cell.z) || this.getRoadCellAt(cell.x, cell.z)) {
         continue
       }
-      if (this.isWaterTerrain(cell.x, cell.z)) continue
+      if (this.isWaterTerrain(cell.x, cell.z) || this.getRideAccessAt(cell.x, cell.z)) continue
       if (
         this.state.buildings.some(
           (building) =>
@@ -2313,6 +2481,7 @@ export class GameState {
         ) ||
         this.getRoadCellAt(cell.x, cell.z) ||
         this.isWaterTerrain(cell.x, cell.z) ||
+        this.getRideAccessAt(cell.x, cell.z) ||
         this.state.buildings.some(
           (building) =>
             occupiesBuildingCell(building,cell.x,cell.z) &&
@@ -2447,6 +2616,7 @@ export class GameState {
   }
 
   isBuildingCurrentlyActive(building: PlacedBuilding): boolean {
+    if (building.kind === 'ride' && this.getRideAccessIssue(building)) return false
     const offer = this.getBuildingDayPlanOffer(building.kind)
     if (offer && !this.isOfferCurrentlyActive(offer)) return false
     if (consumesPower(building.kind) && !this.poweredBuildingIds.has(building.id)) {
@@ -2612,12 +2782,13 @@ export class GameState {
     if(design.audience?.length&&Math.abs(elevation-this.getTerrainHeight(x,z))>.01)return 'Bühnen mit Zuschauerflächen müssen auf Geländehöhe stehen'
     for(const c of buildingFootprint({x,z,rotation,stageDesign:design})){
       if(this.isWaterTerrain(c.x,c.z))return 'Bühnenfläche darf nicht im Wasser liegen'
-      if(this.isLogisticsBuildingCell(c.x,c.z)||this.coasterOccupiesVolume(c.x,c.z,elevation,BUILDINGS.stage.height))return 'Bühnenfläche überschneidet sich mit einer Anlage'
+      if(this.getRideAccessAt(c.x,c.z,elevation)||this.isLogisticsBuildingCell(c.x,c.z)||this.coasterOccupiesVolume(c.x,c.z,elevation,BUILDINGS.stage.height))return 'Bühnenfläche überschneidet sich mit einer Anlage'
     }
     return null
   }
 
   canPlace(kind: BuildingKind, x: number, z: number, decorationSlot?: number): ActionResult {
+    if (this.getRideAccessAt(x,z,this.getPlaceElevation(x,z))) return {ok:false,message:'Hier befindet sich ein Fahrgeschäft-Zugang'}
     if (isScenery(kind)) {
       decorationSlot ??= isEdgeScenery(kind) ? this.state.buildRotation : 0
       if (!Number.isInteger(decorationSlot) || decorationSlot < 0 || decorationSlot > 3) return { ok: false, message: 'Ungültige Dekoposition' }
@@ -2780,6 +2951,9 @@ export class GameState {
       wasteFill: kind === 'wasteBin' ? 0 : undefined,
     })
     if(design)syncStageAudience(this.state)
+    if (['food', 'toilet', 'ride', 'alcohol', 'stage'].includes(kind)) {
+      this.recalculateQueueDirections()
+    }
     this.recalculatePark()
     this.refreshPower()
     this.emit()
@@ -3299,6 +3473,10 @@ export class GameState {
     const candidateBase = Math.min(elevation, rampStartElevation)
     const candidateTop =
       Math.max(elevation, rampStartElevation) + BUILDINGS.path.height
+    const gate = this.getRideAccessAt(x, z)
+    if (gate && gate.point.y < candidateTop && candidateBase < gate.point.y + .8) {
+      return { ok: false, message: 'Hier steht ein Ein- oder Ausgang – den Weg daneben anschließen' }
+    }
     const occupants = this.state.buildings.filter((building) => {
       if (!occupiesBuildingCell(building,x,z)) return false
       const bounds = this.getBuildingVerticalBounds(building)
@@ -3434,6 +3612,13 @@ export class GameState {
   }
 
   bulldoze(x: number, z: number, buildingId?: string): ActionResult {
+    const gate = this.getRideAccessAt(x,z)
+    if (gate && (!buildingId || gate.building.id === buildingId)) {
+      if (this.state.visitors.some(v=>v.targetId===gate.building.id && v.state==='using')) return {ok:false,message:'Bitte die laufende Fahrt abwarten'}
+      delete gate.building[gate.type==='entrance'?'rideEntrance':'rideExit']
+      this.indexedBuildingCount=-1; this.recalculateQueueDirections(); this.emit()
+      return {ok:true,message:'Zugang entfernt'}
+    }
     if (buildingId && !this.state.buildings.some(b => b.id === buildingId && occupiesBuildingCell(b, x, z))) return { ok: false, message: 'Objekt nicht mehr vorhanden' }
     const result = this.bulldozeAt(x, z, buildingId)
     const cell = this.state.festival.infrastructure.ground[groundKey(x, z)]
@@ -3565,6 +3750,7 @@ export class GameState {
             this.decideNextAction(visitor)
           }
         })
+        this.recalculateQueueDirections()
         this.emit()
         return { ok: true, message: 'Bühnenvorplatz aufgehoben' }
       }
@@ -3619,7 +3805,12 @@ export class GameState {
     }
     this.state.buildings = this.state.buildings.filter((item) => item.id !== building.id)
     if(building.stageDesign)syncStageAudience(this.state)
-    if (building.kind === 'path') this.recalculateQueueDirections()
+    if (
+      building.kind === 'path' ||
+      ['food', 'toilet', 'ride', 'alcohol', 'stage'].includes(building.kind)
+    ) {
+      this.recalculateQueueDirections()
+    }
     if (building.kind === 'tree') {
       this.state.money -= SIMULATION_CONFIG.economy.treeClearCost
     } else {
@@ -3783,6 +3974,7 @@ export class GameState {
       this.crowdingMinutes = 0
     }
     this.updateVisitors(minutes)
+    this.updateFacilityQueues(minutes)
     this.updateVisitorFireworks(minutes)
     this.updateCoasters(minutes, simulationSeconds)
 
@@ -4074,6 +4266,7 @@ export class GameState {
           victim.state = 'injured'
           victim.route = []
           victim.streakingMinutes = 0
+          victim.toplessMinutes = 0
           victim.injuryVehicleId = vehicle.id
           victim.thought = 'Ich wurde von einem Fahrzeug angefahren!'
           this.recordComplaint(victim, 'traffic-accident')
@@ -5429,7 +5622,11 @@ export class GameState {
 
   private updateCrowdingAndMotivation(minutes: number): void {
     const config = SIMULATION_CONFIG.crowding
-    const result = this.crowding.calculate(this.state.visitors)
+    const danceFloorKeys = new Set<string>()
+    for (const cell of this.state.stageForecourtCells) {
+      danceFloorKeys.add(`${cell.x}:${cell.z}:${cell.elevation}`)
+    }
+    const result = this.crowding.calculate(this.state.visitors, danceFloorKeys)
     this.state.crowding = result.snapshot
     this.crowdingCosts = new Map(
       result.snapshot.cells.map((cell) => [
@@ -5518,7 +5715,7 @@ export class GameState {
         config.motivationLossPerMinute
       const forecourtOvercrowding =
         this.getStageForecourtCellAt(visitor.cellX, visitor.cellZ) &&
-        visitor.crowding >= atmosphere.overcrowdingStart
+        visitor.crowding >= atmosphere.danceFloorOvercrowdingStart
           ? atmosphere.overcrowdingMotivationLossPerMinute /
             config.motivationLossPerMinute
           : 0
@@ -5736,27 +5933,40 @@ export class GameState {
     const current = this.crowdingCosts.get(
       this.cellKey(visitor.cellX, visitor.cellZ, visitor.cellElevation),
     ) ?? visitor.crowding
-    const quieter = [
-      { x: visitor.cellX + 1, z: visitor.cellZ },
-      { x: visitor.cellX - 1, z: visitor.cellZ },
-      { x: visitor.cellX, z: visitor.cellZ + 1 },
-      { x: visitor.cellX, z: visitor.cellZ - 1 },
-    ]
-      .map((cell) => ({
-        x: cell.x,
-        z: cell.z,
+    const quieter = [...this.getPedestrianNeighbors(
+      {
+        x: visitor.cellX,
+        z: visitor.cellZ,
         elevation: visitor.cellElevation,
+      },
+      {
+        allowQueue: true,
+        allowCamping: true,
+        allowMedical: true,
+        allowFestival: true,
+        allowGrass: true,
+        ignoreDirectionalRestrictions: true,
+      },
+    )]
+      .map((cell) => ({
+        ...cell,
+        path: this.getPathAt(cell.x, cell.z, cell.elevation),
         crowding: this.crowdingCosts.get(
-          this.cellKey(cell.x, cell.z, visitor.cellElevation),
+          this.cellKey(cell.x, cell.z, cell.elevation),
         ) ?? 0,
       }))
-      .filter((cell) => {
-        const path = this.getPathAt(cell.x, cell.z, cell.elevation)
-        return Boolean(path) && !path?.staffOnly && cell.crowding < current - 6
-      })
-      .sort((left, right) => left.crowding - right.crowding)
+      .filter((cell) => !cell.path?.staffOnly && cell.crowding < current - 2)
+      .sort(
+        (left, right) =>
+          left.crowding - right.crowding ||
+          Number(Boolean(left.path)) - Number(Boolean(right.path)),
+      )
     if (quieter[0]) {
-      visitor.route = [quieter[0]]
+      visitor.route = [{
+        x: quieter[0].x,
+        z: quieter[0].z,
+        elevation: quieter[0].elevation,
+      }]
       return
     }
     visitor.route =
@@ -5982,7 +6192,6 @@ export class GameState {
     }
 
     const id = this.nextId('visitor')
-    const nameIndex = (this.idCounter + this.state.day) % VISITOR_NAMES.length
     const tileOffsetX =
       SIMULATION_CONFIG.visitors.tileOffsetMinimum +
       this.rng.next() * SIMULATION_CONFIG.visitors.tileOffsetRandomRange
@@ -5992,7 +6201,7 @@ export class GameState {
     const initialNeeds = SIMULATION_CONFIG.visitors.initialNeeds
     const visitor: Visitor = {
       id,
-      name: `${VISITOR_NAMES[nameIndex]} ${this.idCounter}`,
+      name: `${visitorGivenName(id, this.state.day)} ${this.idCounter}`,
       x: this.getEntrance().x + tileOffsetX,
       y: this.getEntrance().elevation,
       z: this.getEntrance().z + tileOffsetZ,
@@ -6088,6 +6297,8 @@ export class GameState {
       pendingWaste: 0,
       streakingMinutes: 0,
       streakingCooldownMinutes: 0,
+      toplessMinutes: 0,
+      bungeeNude: false,
       pathSeed: hashStringSeed(id),
       wanderNonce: 0,
     }
@@ -6322,6 +6533,7 @@ export class GameState {
         visitor.state !== 'riding' &&
         visitor.state !== 'camping' &&
         visitor.state !== 'bench-resting' &&
+        !visitor.concertId &&
         !this.visitorsAwaitingDecision.has(visitor.id)
       ) {
         this.removeVisitorFromCoasterQueues(visitor.id)
@@ -6336,6 +6548,7 @@ export class GameState {
         visitor.state !== 'riding' &&
         visitor.state !== 'leaving' &&
         visitor.state !== 'bench-resting' &&
+        !visitor.concertId &&
         !this.visitorsAwaitingDecision.has(visitor.id)
       ) {
         this.removeVisitorFromCoasterQueues(visitor.id)
@@ -6480,9 +6693,7 @@ export class GameState {
         visitor.interactionRemaining -= minutes
         const consumed = this.consumeWhileStationary(visitor, minutes)
         if (visitor.pendingWaste > 0 && visitor.route.length > 0) return
-        visitor.isDancing =
-          visitor.localPartyMood >= atmosphere.danceMoodThreshold &&
-          visitor.partyPreference >= atmosphere.dancePreferenceThreshold
+        visitor.isDancing = this.visitorShouldDance(visitor)
         visitor.needs.fun = Math.min(
           100,
           visitor.needs.fun + minutes * (atmosphere.partyFunPerMinute +
@@ -6495,6 +6706,19 @@ export class GameState {
         )
         visitor.emotion = 'excited'
         visitor.emotionMinutes = Math.max(visitor.emotionMinutes, 10)
+        const concert = visitor.concertId
+          ? this.availableConcerts().find((show) => show.booking.id === visitor.concertId)
+          : undefined
+        if (visitor.concertId) {
+          if (concert) {
+            this.updateConcertAttendance(visitor, minutes, concert, consumed)
+            return
+          }
+          this.clearVisitorActivity(visitor)
+          visitor.state = 'exploring'
+          this.decideNextAction(visitor)
+          return
+        }
         if (!consumed) {
           visitor.thought = visitor.isDancing
             ? 'Die Stimmung ist großartig – ich tanze!'
@@ -6502,9 +6726,7 @@ export class GameState {
         }
         if (
           visitor.interactionRemaining <= 0 ||
-          (visitor.concertId&&!this.availableConcerts().some(show=>show.booking.id===visitor.concertId)) ||
-          (visitor.localPartyMood < atmosphere.partyDestinationMinimumMood * 0.5 &&
-            !activeBookings(this.state).some(b => b.id === visitor.concertId && !showIssue(this.state, b))) ||
+          visitor.localPartyMood < atmosphere.partyDestinationMinimumMood * 0.5 ||
           visitor.needs.energy <
             SIMULATION_CONFIG.visitors.decisions.lowEnergy
         ) {
@@ -6673,7 +6895,7 @@ export class GameState {
       if (coaster.operationMode === 'test') {
         if (train.state === 'boarding') {
           coaster.telemetry.measuring = false
-          train.state = 'running'
+          train.state = 'running'; train.photoPieces = []
           train.distance = 0
           train.progress = 0
           train.speed = COASTER_TYPES[coaster.typeId].physics.stationLaunchSpeed
@@ -6695,7 +6917,7 @@ export class GameState {
           return
         }
         coaster.telemetry.measuring = false
-        train.state = 'running'
+        train.state = 'running'; train.photoPieces = []
         train.progress = 0
         train.distance = 0
         train.speed =
@@ -6768,7 +6990,7 @@ export class GameState {
               : full || timed
         if (shouldDispatch && train.passengers > 0) {
           coaster.telemetry.measuring = false
-          train.state = 'running'
+          train.state = 'running'; train.photoPieces = []
           train.progress = 0
           train.distance = 0
           train.speed = COASTER_TYPES[coaster.typeId].physics.stationLaunchSpeed
@@ -6821,7 +7043,7 @@ export class GameState {
       }
       const desiredCellIndex = Math.min(
         queueCells.length - 1,
-        Math.floor(index / 2),
+        Math.floor(index / SIMULATION_CONFIG.coasters.queueSlotsPerCell),
       )
       const currentCellIndex = queueCells.findIndex(
         (cell) =>
@@ -6835,16 +7057,13 @@ export class GameState {
       if (!cell) return
       const path = this.getPathAt(cell.x, cell.z, cell.elevation)
       const direction = directions[path?.queueDirection ?? 0] ?? directions[0]!
-      const side = { x: -direction.z, z: direction.x }
-      const atAssignedRow = targetCellIndex === desiredCellIndex
-      const queueSlotOffset = SIMULATION_CONFIG.coasters.queueSlotOffset
-      const slotOffset = atAssignedRow
-        ? index % 2 === 0
-          ? -queueSlotOffset
-          : queueSlotOffset
-        : 0
-      const targetX = cell.x + 0.5 + side.x * slotOffset
-      const targetZ = cell.z + 0.5 + side.z * slotOffset
+      const stand = this.queueStandOffset(
+        index,
+        direction,
+        targetCellIndex === desiredCellIndex,
+      )
+      const targetX = cell.x + 0.5 + stand.x
+      const targetZ = cell.z + 0.5 + stand.z
       const deltaX = targetX - visitor.x
       const deltaZ = targetZ - visitor.z
       const distance = Math.hypot(deltaX, deltaZ)
@@ -6868,12 +7087,16 @@ export class GameState {
   }
 
   private getCoasterQueueCells(coaster: Coaster): Cell[] {
-    if (!coaster.entrance) return []
-    const fronts = this.getAccessPathNeighbors(coaster.entrance).filter((cell) => {
+    return this.getAccessQueueCells(coaster.entrance)
+  }
+
+  private getAccessQueueCells(entrance: {x:number;y:number;z:number} | null | undefined): Cell[] {
+    if (!entrance) return []
+    const fronts = this.getAccessPathNeighbors(entrance).filter((cell) => {
       const path = this.getPathAt(cell.x, cell.z, cell.elevation)
       const directionToEntrance = this.getDirectionIndex(
-        coaster.entrance!.x - cell.x,
-        coaster.entrance!.z - cell.z,
+        entrance.x - cell.x,
+        entrance.z - cell.z,
       )
       return path?.pathType === 'queue' && path.queueDirection === directionToEntrance
     })
@@ -6904,6 +7127,296 @@ export class GameState {
       })
     }
     return queueCells
+  }
+
+  private getBuildingQueueCells(building: PlacedBuilding): Cell[] {
+    if (building.kind === 'ride') return this.getAccessQueueCells(building.rideEntrance)
+    if (!['food', 'toilet', 'ride', 'alcohol'].includes(building.kind)) return []
+    const access = this.getAccessCell(
+      building.x,
+      building.z,
+      building.elevation,
+      building.rotation,
+    )
+    const front = this.getPathAt(access.x, access.z, access.elevation)
+    const directionToCounter = front
+      ? this.getDirectionIndex(building.x - front.x, building.z - front.z)
+      : -1
+    if (
+      !front ||
+      front.pathType !== 'queue' ||
+      front.queueDirection !== directionToCounter
+    ) {
+      return []
+    }
+    const queueCells: Cell[] = []
+    const visited = new Set<string>()
+    const pending: PlacedBuilding[] = [front]
+    while (pending.length > 0) {
+      const current = pending.shift()
+      if (!current || visited.has(current.id)) continue
+      visited.add(current.id)
+      queueCells.push({
+        x: current.x,
+        z: current.z,
+        elevation: current.elevation,
+      })
+      this.getAdjacentQueuePaths(current).forEach((candidate) => {
+        const directionToCurrent = this.getDirectionIndex(
+          current.x - candidate.x,
+          current.z - candidate.z,
+        )
+        if (
+          candidate.queueDirection === directionToCurrent &&
+          !visited.has(candidate.id)
+        ) {
+          pending.push(candidate)
+        }
+      })
+    }
+    return queueCells
+  }
+
+  private getFacilityQueue(buildingId: string): string[] {
+    let queue = this.facilityQueues.get(buildingId)
+    if (!queue) {
+      queue = this.state.visitors
+        .filter(
+          (visitor) =>
+            visitor.targetId === buildingId &&
+            (visitor.state === 'seeking' || visitor.state === 'queuing'),
+        )
+        .map((visitor) => visitor.id)
+      this.facilityQueues.set(buildingId, queue)
+    }
+    return queue
+  }
+
+  private updateFacilityQueues(minutes: number): void {
+    const facilityIds = new Set(
+      this.state.buildings
+        .filter((building) =>
+          ['food', 'toilet', 'ride', 'alcohol'].includes(building.kind),
+        )
+        .map((building) => building.id),
+    )
+    this.facilityQueues.forEach((queue, buildingId) => {
+      if (facilityIds.has(buildingId)) return
+      queue.forEach((visitorId) => {
+        const visitor = this.getVisitor(visitorId)
+        if (!visitor || visitor.targetId !== buildingId) return
+        visitor.state = 'exploring'
+        visitor.targetId = null
+        visitor.route = []
+        this.queueVisitorDecision(visitor)
+      })
+      this.facilityQueues.delete(buildingId)
+    })
+    const usingCounts = new Map<string, number>()
+    this.state.visitors.forEach((visitor) => {
+      if (visitor.state !== 'using' || !visitor.targetId) return
+      usingCounts.set(
+        visitor.targetId,
+        (usingCounts.get(visitor.targetId) ?? 0) + 1,
+      )
+    })
+    this.state.buildings
+      .filter((building) =>
+        ['food', 'toilet', 'ride', 'alcohol'].includes(building.kind),
+      )
+      .forEach((building) => {
+        const existingQueue = this.facilityQueues.get(building.id)
+        if (!this.isBuildingCurrentlyActive(building)) {
+          existingQueue?.forEach((visitorId) => {
+            const visitor = this.getVisitor(visitorId)
+            if (!visitor || visitor.targetId !== building.id) return
+            visitor.state = 'exploring'
+            visitor.targetId = null
+            visitor.route = []
+            this.queueVisitorDecision(visitor)
+          })
+          this.facilityQueues.delete(building.id)
+          return
+        }
+        const queueCells = this.getBuildingQueueCells(building)
+        if (queueCells.length === 0) {
+          if (building.rideType === 'bungee') {
+            const queue = this.getFacilityQueue(building.id)
+            while (queue.length && (usingCounts.get(building.id) ?? 0) < 1) {
+              const visitor = this.getVisitor(queue.shift()!)
+              if (visitor?.state !== 'queuing' || visitor.targetId !== building.id) continue
+              this.startFacilityInteraction(visitor, building)
+              usingCounts.set(building.id, 1)
+            }
+            return
+          }
+          existingQueue?.forEach((visitorId) => {
+            const visitor = this.getVisitor(visitorId)
+            if (visitor?.state === 'queuing' && visitor.targetId === building.id) {
+              this.startFacilityInteraction(visitor, building)
+            }
+          })
+          this.facilityQueues.delete(building.id)
+          return
+        }
+        const queue = this.getFacilityQueue(building.id)
+        const valid = queue.filter((visitorId) => {
+          const visitor = this.getVisitor(visitorId)
+          return (
+            visitor?.targetId === building.id &&
+            (visitor.state === 'seeking' || visitor.state === 'queuing')
+          )
+        })
+        queue.splice(0, queue.length, ...valid)
+        this.positionFacilityQueue(queue, queueCells, minutes)
+
+        let free =
+          (building.rideType === 'bungee' ? 1 : BUILDINGS[building.kind].capacity) -
+          (usingCounts.get(building.id) ?? 0)
+        while (free > 0 && queue.length > 0) {
+          const visitor = this.getVisitor(queue[0]!)
+          const front = queueCells[0]
+          if (
+            !visitor ||
+            visitor.state !== 'queuing' ||
+            !front ||
+            visitor.cellX !== front.x ||
+            visitor.cellZ !== front.z ||
+            Math.hypot(
+              visitor.x - (front.x + 0.5),
+              visitor.z - (front.z + 0.5),
+            ) > 0.58
+          ) {
+            break
+          }
+          queue.shift()
+          this.startFacilityInteraction(visitor, building)
+          free--
+        }
+      })
+  }
+
+  private queueStandOffset(
+    index: number,
+    direction: { x: number; z: number },
+    packed: boolean,
+  ): { x: number; z: number } {
+    if (!packed) return { x: 0, z: 0 }
+    const config = SIMULATION_CONFIG.coasters
+    const slot = index % config.queueSlotsPerCell
+    const columns = config.queueSlotColumns
+    const rows = Math.ceil(config.queueSlotsPerCell / columns)
+    const col = slot % columns
+    const row = Math.floor(slot / columns)
+    const side = { x: -direction.z, z: direction.x }
+    const sideShift = (col - (columns - 1) / 2) * config.queueSlotOffset
+    const alongShift = (row - (rows - 1) / 2) * config.queueSlotOffset
+    return {
+      x: side.x * sideShift + direction.x * alongShift,
+      z: side.z * sideShift + direction.z * alongShift,
+    }
+  }
+
+  private positionFacilityQueue(
+    queue: readonly string[],
+    queueCells: readonly Cell[],
+    minutes: number,
+  ): void {
+    const directions = [
+      { x: 0, z: 1 },
+      { x: 1, z: 0 },
+      { x: 0, z: -1 },
+      { x: -1, z: 0 },
+    ]
+    queue.forEach((visitorId, index) => {
+      const visitor = this.getVisitor(visitorId)
+      if (!visitor || visitor.state !== 'queuing') return
+      if (
+        queue
+          .slice(0, index)
+          .some((precedingId) => this.getVisitor(precedingId)?.state === 'seeking')
+      ) {
+        return
+      }
+      const desiredCellIndex = Math.min(
+        queueCells.length - 1,
+        Math.floor(index / SIMULATION_CONFIG.coasters.queueSlotsPerCell),
+      )
+      const currentCellIndex = queueCells.findIndex(
+        (cell) =>
+          cell.x === visitor.cellX &&
+          cell.z === visitor.cellZ &&
+          cell.elevation === visitor.cellElevation,
+      )
+      const targetCellIndex =
+        currentCellIndex > desiredCellIndex ? currentCellIndex - 1 : desiredCellIndex
+      const cell = queueCells[targetCellIndex]
+      if (!cell) return
+      const path = this.getPathAt(cell.x, cell.z, cell.elevation)
+      const direction = directions[path?.queueDirection ?? 0] ?? directions[0]!
+      const stand = this.queueStandOffset(
+        index,
+        direction,
+        targetCellIndex === desiredCellIndex,
+      )
+      const targetX = cell.x + 0.5 + stand.x
+      const targetZ = cell.z + 0.5 + stand.z
+      const deltaX = targetX - visitor.x
+      const deltaZ = targetZ - visitor.z
+      const distance = Math.hypot(deltaX, deltaZ)
+      const movement = minutes * SIMULATION_CONFIG.coasters.queueMovementPerMinute
+      visitor.facing = Math.atan2(deltaX || direction.x, deltaZ || direction.z)
+      if (distance <= movement || distance < 0.001) {
+        visitor.x = targetX
+        visitor.y = this.getPathSurfaceElevation(path)
+        visitor.z = targetZ
+        visitor.cellX = cell.x
+        visitor.cellZ = cell.z
+        visitor.cellElevation = cell.elevation
+      } else {
+        visitor.x += (deltaX / distance) * movement
+        visitor.y +=
+          (this.getPathSurfaceElevation(path) - visitor.y) * (movement / distance)
+        visitor.z += (deltaZ / distance) * movement
+      }
+    })
+  }
+
+  private startFacilityInteraction(
+    visitor: Visitor,
+    target: PlacedBuilding,
+  ): void {
+    if (target.kind === 'ride' && this.getRideAccessIssue(target)) {
+      visitor.state = 'exploring'; visitor.targetId = null; visitor.route = []
+      this.queueVisitorDecision(visitor); return
+    }
+    if (target.rideType === 'bungee') {
+      const active = target.bungeeVisitorId ? this.getVisitor(target.bungeeVisitorId) : undefined
+      if (active?.state === 'using' && active.targetId === target.id && active.id !== visitor.id) {
+        const queue = this.facilityQueues.get(target.id) ?? []
+        if (!queue.includes(visitor.id)) queue.push(visitor.id)
+        this.facilityQueues.set(target.id, queue)
+        visitor.state = 'queuing'; visitor.thought = 'Ich warte auf meinen Bungeesprung.'
+        return
+      }
+      target.bungeeVisitorId = visitor.id
+      visitor.bungeeNude = rollsBungeeNude(
+        visitor.id,
+        this.rng.next(),
+        SIMULATION_CONFIG.atmosphere.bungeeNudeChance,
+      )
+    }
+    visitor.state = 'using'
+    const interaction = SIMULATION_CONFIG.needs.interactionMinutes
+    visitor.interactionRemaining =
+      target.kind === 'ride'
+        ? interaction.ride
+        : target.kind === 'alcohol'
+          ? interaction.alcohol
+          : target.kind === 'toilet'
+            ? interaction.toilet
+            : interaction.food
+    visitor.thought = target.rideType === 'bungee' ? 'Jetzt geht es hoch zum Bungeesprung!' : `Ich besuche ${BUILDINGS[target.kind].name}.`
   }
 
   private integrateTrainPhysics(coaster: Coaster, elapsedSeconds: number): void {
@@ -6942,6 +7455,15 @@ export class GameState {
         mass
       let acceleration =
         gravityAcceleration + rollingAcceleration + aerodynamicAcceleration
+      if (sample.pieceKind === 'brakes' && Math.abs(train.speed) > 4) acceleration -= Math.sign(train.speed) * 4
+      if (sample.pieceKind === 'splash' && Math.abs(train.speed) > 3) acceleration -= Math.sign(train.speed) * Math.min(5, train.speed * train.speed * .025)
+      if (sample.pieceKind === 'photo' && !train.photoPieces?.includes(sample.pieceId)) {
+        ;(train.photoPieces ??= []).push(sample.pieceId)
+        for (const id of train.passengerIds) {
+          const visitor = this.getVisitor(id)
+          if (visitor && this.chargeVisitor(visitor, 2, sample.point)) visitor.thought = 'Ein Erinnerungsfoto von der Achterbahn!'
+        }
+      }
       const remainingMeters =
         (sample.totalLength - train.distance) * physics.worldUnitMeters
 
@@ -7573,17 +8095,14 @@ export class GameState {
           this.decideNextAction(visitor)
           return
         }
-        visitor.state = 'using'
-        const interaction = SIMULATION_CONFIG.needs.interactionMinutes
-        visitor.interactionRemaining =
-          target.kind === 'ride'
-            ? interaction.ride
-            : target.kind === 'alcohol'
-              ? interaction.alcohol
-              : target.kind === 'toilet'
-                ? interaction.toilet
-                : interaction.food
-        visitor.thought = `Ich besuche ${BUILDINGS[target.kind].name}.`
+        if (this.getBuildingQueueCells(target).length > 0) {
+          const queue = this.getFacilityQueue(target.id)
+          if (!queue.includes(visitor.id)) queue.push(visitor.id)
+          visitor.state = 'queuing'
+          visitor.thought = `Ich stehe bei ${BUILDINGS[target.kind].name} an.`
+          return
+        }
+        this.startFacilityInteraction(visitor, target)
         return
       }
       const coaster = this.getCoaster(visitor.targetId)
@@ -7641,6 +8160,13 @@ export class GameState {
     const decisions = SIMULATION_CONFIG.visitors.decisions
     if (visitor.isPanicking || visitor.state === 'panicking') {
       this.ensurePanicFleeRoute(visitor)
+      return
+    }
+    if (
+      visitor.concertId &&
+      this.availableConcerts().some((show) => show.booking.id === visitor.concertId)
+    ) {
+      visitor.state = 'partying'
       return
     }
     if (!this.state.parkOpen || visitor.motivation <= 0) {
@@ -7865,6 +8391,10 @@ export class GameState {
         ) {
           return
         }
+        if (this.getBuildingQueueCells(destination.building).length > 0) {
+          const queue = this.getFacilityQueue(destination.building.id)
+          if (!queue.includes(visitor.id)) queue.push(visitor.id)
+        }
         visitor.route = destination.route
         visitor.thought =
           kind === 'food'
@@ -8079,7 +8609,9 @@ export class GameState {
   ): void {
     visitor.state = 'partying'
     visitor.targetId = null
-    visitor.route = party.route
+    visitor.route = party.forecourt
+      ? this.routeThroughFestivalEntrance(visitor, party.cell, party.route)
+      : party.route
     visitor.activityTarget = party.cell
     visitor.activitySlot = party.slot
     visitor.activityCapacity = party.capacity
@@ -8102,12 +8634,94 @@ export class GameState {
     visitor.thought = party.forecourt
       ? 'Ich gehe zum Bühnenvorplatz!'
       : 'Dort scheint gute Stimmung zu sein!'
-    this.tryBeginBusJourney(visitor, party.cell, party.route)
+    this.tryBeginBusJourney(visitor, party.cell, visitor.route)
+  }
+
+  private routeThroughFestivalEntrance(
+    visitor: Visitor,
+    goal: Cell,
+    directRoute: Cell[],
+  ): Cell[] {
+    const start = {
+      x: visitor.cellX,
+      z: visitor.cellZ,
+      elevation: visitor.cellElevation,
+    }
+    const directDistance =
+      Math.abs(goal.x - start.x) + Math.abs(goal.z - start.z)
+    const directions = [
+      { x: 0, z: 1 },
+      { x: 1, z: 0 },
+      { x: 0, z: -1 },
+      { x: -1, z: 0 },
+    ]
+    const gates = this.state.buildings
+      .filter((building) => building.kind === 'securityGate')
+      .map((gate) => {
+        const direction = directions[gate.rotation % directions.length] ?? directions[0]!
+        const startSide =
+          (start.x - gate.x) * direction.x + (start.z - gate.z) * direction.z
+        const goalSide =
+          (goal.x - gate.x) * direction.x + (goal.z - gate.z) * direction.z
+        const detour =
+          Math.abs(gate.x - start.x) +
+          Math.abs(gate.z - start.z) +
+          Math.abs(goal.x - gate.x) +
+          Math.abs(goal.z - gate.z)
+        return {
+          gate,
+          weight: gate.securityConfig?.flowShare ?? 1,
+          eligible:
+            startSide < 0 &&
+            goalSide > 0 &&
+            detour <= directDistance * 2 + 8 &&
+            Boolean(this.getPathAt(gate.x, gate.z, gate.elevation)),
+        }
+      })
+      .filter((candidate) => candidate.eligible && candidate.weight > 0)
+      .sort((left, right) => left.gate.id.localeCompare(right.gate.id))
+    if (gates.length === 0) return directRoute
+
+    const totalWeight = gates.reduce((sum, candidate) => sum + candidate.weight, 0)
+    let hash = 2166136261
+    for (const character of visitor.id) {
+      hash ^= character.charCodeAt(0)
+      hash = Math.imul(hash, 16777619)
+    }
+    let selection = ((hash >>> 0) / 0x100000000) * totalWeight
+    const selected =
+      gates.find((candidate) => {
+        selection -= candidate.weight
+        return selection <= 0
+      }) ?? gates[gates.length - 1]
+    if (!selected) return directRoute
+
+    const gateCell = {
+      x: selected.gate.x,
+      z: selected.gate.z,
+      elevation: selected.gate.elevation,
+    }
+    const toGate = this.findPath(start, [gateCell], true)
+    const fromGate = this.findPath(
+      gateCell,
+      [goal],
+      true,
+      false,
+      false,
+      false,
+      true,
+    )
+    return toGate && fromGate ? [...toGate, ...fromGate] : directRoute
   }
 
   private availableConcerts(){
-    const key=`${this.state.simTick}:${this.worldRevision}`
-    if(key!==this.concertChoiceKey){this.concertChoiceKey=key;this.concertChoices=activeBookings(this.state).filter(b=>!showIssue(this.state,b)).map(booking=>({booking,band:BANDS.find(b=>b.id===booking.bandId)!,stage:this.state.buildings.find(b=>b.id===booking.stageId)!}))}
+    const key=`${this.state.simTick}:${this.worldRevision}:${this.state.day}:${this.state.minute}`
+    if(key!==this.concertChoiceKey){
+      this.concertChoiceKey=key
+      this.concertChoices=watchableBookings(this.state)
+        .filter(b=>!showIssue(this.state,b,Math.max(this.state.minute,b.start)))
+        .map(booking=>({booking,band:BANDS.find(b=>b.id===booking.bandId)!,stage:this.state.buildings.find(b=>b.id===booking.stageId)!}))
+    }
     return this.concertChoices
   }
   private avoidsConcertAt(visitor:Visitor,cell:{x:number;z:number}){
@@ -8118,41 +8732,243 @@ export class GameState {
     return !nearby.some(show=>musicAppeal(visitor.musicTaste!,show.band.id)>=.3)
   }
 
+  private visitorShouldDance(visitor: Visitor): boolean {
+    const atmosphere = SIMULATION_CONFIG.atmosphere
+    const onDanceFloor = Boolean(
+      visitor.concertId ||
+        this.getStageForecourtCellAt(visitor.cellX, visitor.cellZ),
+    )
+    if (onDanceFloor) {
+      if (visitor.concertId) {
+        return visitor.partyPreference >= atmosphere.danceFloorPreferenceThreshold
+      }
+      return (
+        visitor.localPartyMood >= atmosphere.danceFloorMoodThreshold &&
+        visitor.partyPreference >= atmosphere.danceFloorPreferenceThreshold
+      )
+    }
+    return (
+      visitor.localPartyMood >= atmosphere.danceMoodThreshold &&
+      visitor.partyPreference >= atmosphere.dancePreferenceThreshold
+    )
+  }
+
+  private stageFocusPoint(stage: {
+    x: number
+    z: number
+    rotation: number
+    stageDesign?: StageDesign
+  }): { x: number; z: number } {
+    const size = stageSize(stage.stageDesign, stage.rotation)
+    return {
+      x: stage.x + (size.width - 1) / 2,
+      z: stage.z + (size.depth - 1) / 2,
+    }
+  }
+
+  private visitorDanceAngle(visitor: Visitor, stageId: string): number {
+    return ((((hashStringSeed(visitor.id) ^ hashStringSeed(stageId)) >>> 8) & 1023) / 1024) * Math.PI * 2
+  }
+
+  private angularDelta(
+    cell: { x: number; z: number },
+    focus: { x: number; z: number },
+    want: number,
+  ): number {
+    const angle = Math.atan2(cell.z - focus.z, cell.x - focus.x)
+    return Math.abs(Math.atan2(Math.sin(angle - want), Math.cos(angle - want)))
+  }
+
+  private ensureDanceFloorIndex(): void {
+    if (this.concertSlotTick === this.state.simTick) return
+    this.concertSlotTick = this.state.simTick
+    this.concertSlots.clear()
+    this.concertForecourtByStage.clear()
+    this.concertForecourtStageIds.clear()
+    this.danceFloorFocusByStage.clear()
+    for (const guest of this.state.visitors) {
+      if (!guest.activityTarget || !['partying', 'relaxing'].includes(guest.state)) continue
+      const key = this.packCell(guest.activityTarget)
+      const slots = this.concertSlots.get(key) ?? new Set<number>()
+      slots.add(guest.activitySlot)
+      this.concertSlots.set(key, slots)
+    }
+    const stages = this.state.buildings.filter((building) => building.kind === 'stage')
+    for (const stage of stages) {
+      this.danceFloorFocusByStage.set(stage.id, this.stageFocusPoint(stage))
+    }
+    for (const cell of this.state.stageForecourtCells) {
+      let nearest: { id: string; distance: number } | undefined
+      for (const stage of stages) {
+        const linked = cell.stageId
+          ? cell.stageId === stage.id
+          : stageDistance(stage, cell) <= 8
+        if (!linked) continue
+        const list = this.concertForecourtByStage.get(stage.id)
+        if (list) list.push(cell)
+        else this.concertForecourtByStage.set(stage.id, [cell])
+        const distance = stageDistance(stage, cell)
+        if (!nearest || distance < nearest.distance) nearest = { id: stage.id, distance }
+      }
+      if (nearest) this.concertForecourtStageIds.set(this.packCell(cell), nearest.id)
+    }
+  }
+
   private tryVisitConcert(visitor: Visitor): boolean {
     if (!this.state.festival.enabled) return false
-    if (this.concertSlotTick !== this.state.simTick) {
-      this.concertSlotTick = this.state.simTick
-      this.concertSlots.clear()
-      for (const guest of this.state.visitors) {
-        if (!guest.activityTarget || !['partying', 'relaxing'].includes(guest.state)) continue
-        const key = this.packCell(guest.activityTarget)
-        const slots = this.concertSlots.get(key) ?? new Set<number>()
-        slots.add(guest.activitySlot); this.concertSlots.set(key, slots)
-      }
-    }
+    this.ensureDanceFloorIndex()
     visitor.musicTaste??=musicTaste(visitor.id,this.state.festival)
     const shows = this.availableConcerts()
       .filter(show=>musicAppeal(visitor.musicTaste!,show.band.id)>=.3)
       .sort((a,b)=> (musicAppeal(visitor.musicTaste!,b.band.id)*120+b.band.draw*.25-stageDistance(b.stage,visitor)*.5)-(musicAppeal(visitor.musicTaste!,a.band.id)*120+a.band.draw*.25-stageDistance(a.stage,visitor)*.5))
+    const atmosphere = SIMULATION_CONFIG.atmosphere
+    const capacity = atmosphere.forecourtCapacityPerCell
+    const slotOrder = [4, 0, 2, 6, 8, 1, 3, 5, 7]
     for (const show of shows.slice(0, 2)) {
       if (visitor.audience === 'family' && this.state.minute >= 21 * 60) continue
-      const cells = this.state.stageForecourtCells.filter(c => stageDistance(show.stage,c) <= 8)
-        .sort((a, b) => Math.hypot(a.x - visitor.x, a.z - visitor.z) - Math.hypot(b.x - visitor.x, b.z - visitor.z))
-      for (const cell of cells.slice(0, 8)) {
-        const key = this.packCell(cell), used = this.concertSlots.get(key) ?? new Set<number>()
-        const slot = [4, 0, 2, 6, 8, 1, 3, 5, 7].find(n => !used.has(n))
-        if (slot === undefined) continue
-        const route = this.findPath({ x: visitor.cellX, z: visitor.cellZ, elevation: visitor.cellElevation }, [cell], false, true, false, false, true)
-        if (!route) continue
-        used.add(slot); this.concertSlots.set(key, used)
-        this.beginPartyVisit(visitor, { cell, route, slot, capacity: 9, forecourt: true })
-        visitor.concertId = show.booking.id
-        visitor.interactionRemaining = show.booking.start + show.booking.duration - this.state.minute
-        visitor.thought = `Ich möchte ${show.band.name} sehen!`
-        return true
-      }
+      const cells = this.concertForecourtByStage.get(show.stage.id) ?? []
+      const open = cells.filter((cell) => (this.concertSlots.get(this.packCell(cell))?.size ?? 0) < capacity)
+      if (!open.length) continue
+      const focus = this.danceFloorFocusByStage.get(show.stage.id) ?? this.stageFocusPoint(show.stage)
+      const want = this.visitorDanceAngle(visitor, show.stage.id)
+      const goals = open
+        .map((cell) => {
+          const used = this.concertSlots.get(this.packCell(cell))?.size ?? 0
+          const distance =
+            Math.abs(cell.x - visitor.cellX) + Math.abs(cell.z - visitor.cellZ)
+          return {
+            cell,
+            score: used * 24 + distance + this.angularDelta(cell, focus, want) * 0.4,
+          }
+        })
+        .sort((left, right) => left.score - right.score)
+        .slice(0, atmosphere.concertSpreadGoals)
+        .map((entry) => entry.cell)
+      const route = this.findPath(
+        { x: visitor.cellX, z: visitor.cellZ, elevation: visitor.cellElevation },
+        goals,
+        true,
+        true,
+        false,
+        false,
+        true,
+      )
+      if (!route) continue
+      const end = route.at(-1) ?? goals[0]!
+      const cell =
+        goals.find(
+          (goal) =>
+            goal.x === end.x &&
+            goal.z === end.z &&
+            Math.abs(goal.elevation - end.elevation) < 0.01,
+        ) ?? goals[0]!
+      const key = this.packCell(cell)
+      const used = this.concertSlots.get(key) ?? new Set<number>()
+      const slot = slotOrder.find((n) => !used.has(n))
+      if (slot === undefined) continue
+      used.add(slot)
+      this.concertSlots.set(key, used)
+      this.beginPartyVisit(visitor, { cell, route, slot, capacity, forecourt: true })
+      visitor.concertId = show.booking.id
+      visitor.interactionRemaining = show.booking.start + show.booking.duration - this.state.minute
+      visitor.thought = this.state.minute < show.booking.start
+        ? `Ich gehe schon zu ${show.band.name}, damit ich den Anfang nicht verpasse.`
+        : `Ich möchte ${show.band.name} sehen!`
+      return true
     }
     return false
+  }
+
+  private updateConcertAttendance(
+    visitor: Visitor,
+    minutes: number,
+    concert: { booking: Booking; band: (typeof BANDS)[number] },
+    consumed: boolean,
+  ): void {
+    visitor.interactionRemaining = Math.max(
+      visitor.interactionRemaining,
+      concert.booking.start + concert.booking.duration - this.state.minute,
+    )
+    if (this.state.minute < concert.booking.start) {
+      visitor.toplessMinutes = 0
+      if (!consumed) visitor.thought = `Ich warte auf ${concert.band.name}.`
+      return
+    }
+    this.updateConcertTopless(visitor, minutes, concert)
+    if (visitor.toplessMinutes > 0) return
+    if (visitor.thought === CONCERT_TOPLESS_CROWD_THOUGHT) return
+    if (!consumed) {
+      visitor.thought = visitor.isDancing
+        ? `${concert.band.name} spielen – ich tanze die ganze Show!`
+        : `${concert.band.name} spielen live – ich bleibe bis zum Ende.`
+    }
+  }
+
+  private updateConcertTopless(
+    visitor: Visitor,
+    minutes: number,
+    concert: { booking: Booking },
+  ): void {
+    const atmosphere = SIMULATION_CONFIG.atmosphere
+    const remaining = concert.booking.start + concert.booking.duration - this.state.minute
+    if (visitor.streakingMinutes > 0 || remaining <= 0) {
+      visitor.toplessMinutes = 0
+      return
+    }
+    if (visitor.toplessMinutes > 0) {
+      visitor.toplessMinutes = remaining
+      visitor.needs.fun = Math.min(
+        100,
+        visitor.needs.fun + minutes * atmosphere.concertToplessSelfFun,
+      )
+      visitor.thought = CONCERT_TOPLESS_THOUGHT
+      this.spreadConcertToplessFun(visitor, minutes)
+      return
+    }
+    if (visitor.audience === 'family' || !visitorLooksFemale(visitor.id)) return
+    if (this.rng.next() >= Math.min(1, minutes * atmosphere.concertToplessChancePerMinute)) return
+    visitor.toplessMinutes = remaining
+    visitor.needs.fun = Math.min(
+      100,
+      visitor.needs.fun + minutes * atmosphere.concertToplessSelfFun,
+    )
+    visitor.emotion = 'excited'
+    visitor.emotionMinutes = Math.max(visitor.emotionMinutes, 12)
+    visitor.thought = CONCERT_TOPLESS_THOUGHT
+    this.spreadConcertToplessFun(visitor, minutes)
+  }
+
+  private spreadConcertToplessFun(source: Visitor, minutes: number): void {
+    const atmosphere = SIMULATION_CONFIG.atmosphere
+    const radius = atmosphere.concertToplessRadius
+    this.state.visitors.forEach((other) => {
+      if (other.id === source.id) return
+      if (
+        other.state === 'sleeping' ||
+        other.state === 'riding' ||
+        other.state === 'medical' ||
+        other.state === 'injured' ||
+        other.state === 'vehicle-arrival' ||
+        other.state === 'bus-riding'
+      ) {
+        return
+      }
+      const distance =
+        Math.abs(other.cellX - source.cellX) +
+        Math.abs(other.cellZ - source.cellZ)
+      if (distance > radius) return
+      other.needs.fun = Math.min(
+        100,
+        other.needs.fun + minutes * atmosphere.concertToplessNearbyFun,
+      )
+      if (other.emotion !== 'angry' && other.emotion !== 'sad') {
+        other.emotion = distance <= 1 ? 'excited' : 'happy'
+        other.emotionMinutes = Math.max(other.emotionMinutes, 8)
+      }
+      if ((other.toplessMinutes ?? 0) <= 0 && other.state !== 'leaving' && other.state !== 'panicking') {
+        other.thought = CONCERT_TOPLESS_CROWD_THOUGHT
+      }
+    })
   }
 
   private giveWaste(visitor: Visitor, amount: number): void {
@@ -8792,6 +9608,8 @@ export class GameState {
           forecourt: false,
         })),
     ]
+    this.ensureDanceFloorIndex()
+    const danceAngleByStage = new Map<string, number>()
     const scored = candidates
       .filter(candidate=>!this.avoidsConcertAt(visitor,candidate.cell))
       .map((candidate) => {
@@ -8808,6 +9626,19 @@ export class GameState {
           Math.abs(candidate.cell.x - visitor.cellX) +
           Math.abs(candidate.cell.z - visitor.cellZ)
         const crowding = this.crowdingCosts.get(cellKey) ?? 0
+        const stageId = candidate.forecourt
+          ? this.concertForecourtStageIds.get(this.packCell(candidate.cell))
+          : undefined
+        const focus = stageId ? this.danceFloorFocusByStage.get(stageId) : undefined
+        let angle = 0
+        if (stageId && focus) {
+          let want = danceAngleByStage.get(stageId)
+          if (want === undefined) {
+            want = this.visitorDanceAngle(visitor, stageId)
+            danceAngleByStage.set(stageId, want)
+          }
+          angle = this.angularDelta(candidate.cell, focus, want)
+        }
         return {
           ...candidate,
           occupantCount,
@@ -8816,7 +9647,8 @@ export class GameState {
             party * visitor.partyPreference -
             occupantCount * atmosphere.occupancyScorePenalty -
             distance * atmosphere.distanceScorePenalty -
-            crowding * atmosphere.crowdingScorePenalty +
+            crowding * atmosphere.crowdingScorePenalty -
+            angle * atmosphere.danceFloorAnglePenalty +
             (candidate.forecourt ? atmosphere.forecourtScoreBonus : 0),
         }
       })
@@ -8829,7 +9661,7 @@ export class GameState {
       const route = this.findPath(
         start,
         [candidate.cell],
-        false,
+        true,
         false,
         false,
         false,
@@ -8859,6 +9691,8 @@ export class GameState {
     visitor.activitySlot = 0
     visitor.activityCapacity = 1
     visitor.isDancing = false
+    visitor.toplessMinutes = 0
+    visitor.bungeeNude = false
     if (visitor.state === 'bench-resting') visitor.targetId = null
   }
 
@@ -8877,37 +9711,64 @@ export class GameState {
           building.kind === kind && this.isBuildingCurrentlyActive(building),
       )
       .map((building) => {
-        const access = this.getAccessCell(
+        const queueCells = this.getBuildingQueueCells(building)
+        const access = building.kind === 'ride' && queueCells[0] ? queueCells[0] : this.getAccessCell(
           building.x,
           building.z,
           building.elevation,
           building.rotation,
         )
+        const queueLength =
+          queueCells.length > 0 ? this.getFacilityQueue(building.id).length : 0
+        const goal =
+          queueCells[
+            Math.min(
+              queueCells.length - 1,
+              Math.floor(
+                queueLength / SIMULATION_CONFIG.coasters.queueSlotsPerCell,
+              ),
+            )
+          ] ?? access
         return {
           building,
           access,
+          goal,
+          queueCells,
+          queueLength,
           distance:
-            Math.abs(access.x - start.x) + Math.abs(access.z - start.z),
+            Math.abs(goal.x - start.x) + Math.abs(goal.z - start.z),
         }
       })
-      .filter((candidate) =>
-        Boolean(this.getPathAt(candidate.access.x, candidate.access.z, candidate.access.elevation)),
+      .filter(
+        (candidate) =>
+          Boolean(
+            this.getPathAt(
+              candidate.access.x,
+              candidate.access.z,
+              candidate.access.elevation,
+            ),
+          ) &&
+          (candidate.queueCells.length === 0 ||
+            candidate.queueLength <
+              candidate.queueCells.length *
+                SIMULATION_CONFIG.coasters.queueSlotsPerCell),
       )
       .sort((left, right) => left.distance - right.distance)
       .slice(0, SIMULATION_CONFIG.pathfinding.maxFacilityCandidates)
     if (candidates.length === 0) return null
     const route = this.findPath(
       start,
-      candidates.map((candidate) => candidate.access),
+      candidates.map((candidate) => candidate.goal),
+      true,
     )
     if (!route) return null
     const end = route.at(-1) ?? start
     const match =
       candidates.find(
         (candidate) =>
-          candidate.access.x === end.x &&
-          candidate.access.z === end.z &&
-          Math.abs(candidate.access.elevation - end.elevation) < 0.01,
+          candidate.goal.x === end.x &&
+          candidate.goal.z === end.z &&
+          Math.abs(candidate.goal.elevation - end.elevation) < 0.01,
       ) ?? candidates[0]
     return match ? { building: match.building, route } : null
   }
@@ -9183,6 +10044,12 @@ export class GameState {
 
   private finishInteraction(visitor: Visitor): void {
     const target = this.state.buildings.find((building) => building.id === visitor.targetId)
+    const rideExitPath = target?.kind === 'ride' && target.rideExit
+      ? this.getAccessPathNeighbors(target.rideExit).find(c=>this.getPathAt(c.x,c.z,c.elevation)?.pathType !== 'queue') : undefined
+    if (target?.kind === 'ride' && !rideExitPath) {
+      visitor.thought = 'Ich warte, bis der Ausgang wieder mit einem Gehweg verbunden ist.'
+      return
+    }
     const supply = target?.kind === 'food' ? 'food' : target?.kind === 'alcohol' ? 'drinks' : null
     const available = !supply || !!target && localStock(this.state, target.id, supply) >= 1
     if (!available) this.state.festival.metrics.stockouts++
@@ -9210,7 +10077,9 @@ export class GameState {
         visitor,
         SIMULATION_CONFIG.nausea.carouselIntensity,
       )
-      visitor.thought = 'Das Karussell war großartig!'
+      visitor.thought = target.rideType === 'bungee' ? 'Was für ein Bungeesprung!' : 'Das Karussell war großartig!'
+      visitor.bungeeNude = false
+      delete target.bungeeVisitorId
     } else if (target?.kind === 'alcohol' && paid) {
       addItem(visitor.inventory, 'alcohol')
       visitor.thought = 'Ich habe ein Getränk gekauft und trinke es gleich in Ruhe.'
@@ -9224,6 +10093,13 @@ export class GameState {
       Boolean(paid) &&
       (target?.kind === 'food' || target?.kind === 'alcohol')
     visitor.targetId = null
+    if (target?.kind === 'ride' && target.rideExit && rideExitPath) {
+      visitor.x=target.rideExit.x+.5; visitor.y=target.rideExit.y; visitor.z=target.rideExit.z+.5
+      visitor.cellX=target.rideExit.x; visitor.cellZ=target.rideExit.z; visitor.cellElevation=target.rideExit.y
+      visitor.state='exiting'; visitor.route=[rideExitPath]; visitor.interactionRemaining=0
+      delete target.bungeeVisitorId
+      return
+    }
     if (purchasedConsumable) {
       // Clear the counter before eating or drinking; avoid occupying the service tile.
       const route: Cell[] = []
@@ -9245,6 +10121,10 @@ export class GameState {
     }
     visitor.state = 'exploring'
     visitor.interactionRemaining = 0
+    if (target?.kind === 'ride' && paid) {
+      this.queueVisitorDecision(visitor)
+      return
+    }
     this.decideNextAction(visitor)
   }
 
@@ -9276,6 +10156,7 @@ export class GameState {
     if (visitor.streakingMinutes > 0 || visitor.streakingCooldownMinutes > 0) {
       return false
     }
+    if (visitor.concertId) return false
     if (
       visitor.alcoholLevel < config.minimumAlcohol ||
       visitor.alcoholLevel > config.maximumAlcohol ||
@@ -9406,6 +10287,7 @@ export class GameState {
     ) {
       this.removeVisitorFromCoasterQueues(visitor.id)
       visitor.streakingMinutes = 0
+      visitor.toplessMinutes = 0
       visitor.state = 'sleeping'
       visitor.route = []
       visitor.targetId = null
@@ -9718,6 +10600,7 @@ export class GameState {
   }
 
   private isPedestrianSolidAt(x: number, z: number, elevation: number): boolean {
+    if (this.getRideAccessAt(x,z,elevation)) return true
     if (this.state.festival.infrastructure.depots.some(d => d.x === x && d.z === z) && elevation < this.getTerrainHeight(x, z) + 1) return true
     for (const building of this.getBuildingsAtCell(x, z)) {
       if (
@@ -9861,22 +10744,10 @@ export class GameState {
     })
     const claimed = new Set<string>()
 
-    this.state.coasters.forEach((coaster) => {
-      if (!coaster.entrance) return
-      const pending: Array<{
-        path: PlacedBuilding
-        target: { x: number; z: number }
-      }> = this.getAccessPathNeighbors(coaster.entrance)
-        .map((cell) => this.getPathAt(cell.x, cell.z, cell.elevation))
-        .filter(
-          (path): path is PlacedBuilding =>
-            Boolean(path && path.pathType === 'queue' && !claimed.has(path.id)),
-        )
-        .map((path) => ({
-          path,
-          target: { x: coaster.entrance!.x, z: coaster.entrance!.z },
-        }))
-
+    const claimQueue = (
+      seeds: Array<{ path: PlacedBuilding; target: { x: number; z: number } }>,
+    ): void => {
+      const pending = [...seeds]
       while (pending.length > 0) {
         const entry = pending.shift()
         if (!entry || claimed.has(entry.path.id)) continue
@@ -9893,6 +10764,57 @@ export class GameState {
           })
         })
       }
+    }
+
+    this.state.coasters.forEach((coaster) => {
+      if (!coaster.entrance) return
+      claimQueue(
+        this.getAccessPathNeighbors(coaster.entrance)
+          .map((cell) => this.getPathAt(cell.x, cell.z, cell.elevation))
+          .filter(
+            (path): path is PlacedBuilding =>
+              Boolean(path && path.pathType === 'queue' && !claimed.has(path.id)),
+          )
+          .map((path) => ({
+            path,
+            target: { x: coaster.entrance!.x, z: coaster.entrance!.z },
+          })),
+      )
+    })
+
+    this.state.buildings
+      .filter((building) =>
+        ['food', 'toilet', 'ride', 'alcohol'].includes(building.kind),
+      )
+      .forEach((building) => {
+        if (building.kind === 'ride') {
+          if (building.rideEntrance) claimQueue(this.getAccessPathNeighbors(building.rideEntrance)
+            .map(c=>this.getPathAt(c.x,c.z,c.elevation))
+            .filter((p): p is PlacedBuilding=>Boolean(p && p.pathType==='queue' && !claimed.has(p.id)))
+            .map(path=>({path,target:building.rideEntrance!})))
+          return
+        }
+        const access = this.getAccessCell(
+          building.x,
+          building.z,
+          building.elevation,
+          building.rotation,
+        )
+        const path = this.getPathAt(access.x, access.z, access.elevation)
+        if (!path || path.pathType !== 'queue' || claimed.has(path.id)) return
+        claimQueue([{ path, target: { x: building.x, z: building.z } }])
+      })
+
+    this.state.stageForecourtCells.forEach((cell) => {
+      const seeds = queuePaths
+        .filter(
+          (path): path is PlacedBuilding =>
+            !claimed.has(path.id) &&
+            Math.abs(path.x - cell.x) + Math.abs(path.z - cell.z) === 1 &&
+            Math.abs(path.elevation - cell.elevation) < 0.01,
+        )
+        .map((path) => ({ path, target: { x: cell.x, z: cell.z } }))
+      claimQueue(seeds)
     })
 
     queuePaths.forEach((path) => {
@@ -9972,15 +10894,8 @@ export class GameState {
       { x: access.x, z: access.z - 1 },
       { x: access.x, z: access.z + 1 },
     ]
-    return this.state.buildings
-      .filter(
-        (building) =>
-          building.kind === 'path' &&
-          building.elevation === access.y &&
-          positions.some(
-            (position) => position.x === building.x && position.z === building.z,
-          ),
-      )
+    return positions.map(p=>this.getPathAt(p.x,p.z,access.y))
+      .filter((building): building is PlacedBuilding => Boolean(building && !building.staffOnly))
       .map((building) => ({
         x: building.x,
         z: building.z,
@@ -10114,8 +11029,16 @@ export class GameState {
   private ensureSpatialIndexes(): void {
     if (this.indexedBuildingCount !== this.state.buildings.length) {
       this.buildingCellIndex.clear()
+      this.rideAccessIndex.clear()
       this.pathExactIndex.clear()
       this.state.buildings.forEach((building) => {
+        if (building.kind === 'ride') for (const type of ['entrance','exit'] as const) {
+          const point=building[type==='entrance'?'rideEntrance':'rideExit']
+          if (point) {
+            const key=this.packXZ(point.x,point.z), entries=this.rideAccessIndex.get(key) ?? []
+            entries.push({building,type,point}); this.rideAccessIndex.set(key,entries)
+          }
+        }
         for(const cell of buildingFootprint(building)) {
           const key = this.packXZ(cell.x, cell.z)
           const bucket = this.buildingCellIndex.get(key)
@@ -10192,6 +11115,7 @@ export class GameState {
   }
 
   private isTerrainProtected(x: number, z: number): boolean {
+    if (this.getRideAccessAt(x,z)) return true
     const entrance = this.getEntrance()
     if (x === entrance.x && z === entrance.z) return true
     if (
@@ -10436,11 +11360,14 @@ export class GameState {
       const frame = computeTrackFrame(
         { x: next.x - previous.x, y: next.y - previous.y, z: next.z - previous.z },
         point.bank ?? 0,
+        point.pitch ?? 0,
+        point.frameHeading,
       )
       return [-0.28, 0, 0.28].every((offset) => {
         const x = Math.round(point.x + frame.right.x * offset)
         const y = point.y + frame.right.y * offset
         const z = Math.round(point.z + frame.right.z * offset)
+        if (this.getRideAccessAt(x,z,y)) return false
         if (y < 1.2 && this.getCampingCellAt(x, z)) return false
         if (
           this.state.buildings.some(
@@ -10570,7 +11497,7 @@ export class GameState {
     }
     return {
       base: building.elevation,
-      top: building.elevation + BUILDINGS[building.kind].height,
+      top: building.elevation + (building.rideType === 'bungee' ? (building.bungeeHeight ?? 20) / 4 + .4 : BUILDINGS[building.kind].height),
     }
   }
 

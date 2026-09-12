@@ -19,6 +19,7 @@ import {
   visitorBubbleKind,
 } from '../src/game/visitorBubbles'
 import { SIMULATION_CONFIG } from '../src/game/simulationConfig'
+import { CrowdingSystem } from '../src/game/crowding'
 
 export function testOperations(fixture:(count?:number)=>GameState):void {
   const planning=new GameState(), plan=planning.snapshot as GameSnapshot
@@ -53,12 +54,31 @@ export function testOperations(fixture:(count?:number)=>GameState):void {
     17,
     'bulk price does not affect other shop types',
   )
+  shopping.addDebugMoney()
+  assert.ok(shopping.placePathSegment(5,-19,0,'queue').ok)
+  const shopQueue=ss.buildings.find(b=>b.kind==='path'&&b.x===5&&b.z===-19)!
+  assert.equal(shopQueue.queueDirection,2,'a queue path at a stand points toward its service counter')
+  Object.assign(buyer,{targetId:shop.id,state:'seeking',route:[],cellX:5,cellZ:-19,cellElevation:0,x:5.5,z:-18.5})
+  ;(shopping as any).visitorsAwaitingDecision.delete(buyer.id)
+  ;(shopping as any).arriveOrDecide(buyer)
+  assert.equal(buyer.state,'queuing','stand visitors use connected physical queue paths')
+  assert.equal(SIMULATION_CONFIG.coasters.queueSlotsPerCell, 6, 'queue tiles hold six guests')
+  assert.ok(SIMULATION_CONFIG.coasters.queueMovementPerMinute>=2,'queues rush forward when someone enters')
+  for (let slot = 0; slot < 6; slot++) {
+    const stand = (shopping as any).queueStandOffset(slot, { x: 0, z: 1 }, true)
+    assert.ok(Math.abs(stand.x) <= 0.42 && Math.abs(stand.z) <= 0.42, 'six stand points stay on the tile')
+  }
 
   const gates=fixture(0), from={x:2,z:-20,elevation:0}, gate={x:3,z:-20,elevation:0}
   assert.ok((gates as any).findPath(from,[gate]))
   assert.ok(gates.manageFestival({type:'staffGate',...gate}).ok)
   assert.equal((gates as any).findPath(from,[gate]),null,'guests cannot enter staff gates, including cached routes')
   assert.ok((gates as any).findPath(from,[gate],false,false,false,false,false,undefined,true),'staff can enter the same gate')
+  gates.addDebugMoney()
+  assert.ok(gates.place('securityGate',4,-20).ok)
+  const admission=gates.snapshot.buildings.find(b=>b.kind==='securityGate')!
+  assert.ok(gates.updateSecurityGate(admission.id,{flowShare:.35}).ok)
+  assert.equal(admission.securityConfig?.flowShare,.35,'festival entrances store their visitor-flow share')
 
   const game=fixture(0), s=game.snapshot as GameSnapshot, i=s.festival.infrastructure
   game.addDebugMoney()
@@ -184,6 +204,50 @@ export function testOperations(fixture:(count?:number)=>GameState):void {
     }),
     'crushed',
     'sustained critical crowding still overrides festival mood',
+  )
+  const packedDancers = Array.from({ length: 9 }, (_, index) => ({
+    id: `dancer-${index}`,
+    cellX: 0,
+    cellZ: 0,
+    cellElevation: 0,
+    state: 'partying',
+  }))
+  const crowding = new CrowdingSystem()
+  const packed = crowding.calculate(packedDancers)
+  const danceFloor = crowding.calculate(packedDancers, new Set(['0:0:0']))
+  assert.ok(packed.visitorValues.get('dancer-0')! > 50, 'nine people on one path tile feel packed')
+  assert.ok(
+    danceFloor.visitorValues.get('dancer-0')! < packed.visitorValues.get('dancer-0')! * 0.55,
+    'the same cluster feels lighter on a dance floor',
+  )
+  const panicGame = fixture(1)
+  const panicVisitor = panicGame.snapshot.visitors[0]!
+  assert.ok(panicGame.place('path', 0, 0).ok)
+  Object.assign(panicVisitor, {
+    cellX: 0,
+    cellZ: 0,
+    cellElevation: 0,
+    x: 0.5,
+    y: 0,
+    z: 0.5,
+    crowding: 100,
+    crowdStress: 100,
+    isPanicking: true,
+    state: 'panicking',
+    route: [],
+  })
+  ;(panicGame as any).crowdingCosts = new Map([['0,0,0', 100]])
+  ;(panicGame as any).ensurePanicFleeRoute(panicVisitor)
+  assert.equal(panicVisitor.route.length, 1, 'panicking guests flee to an adjacent open cell')
+  assert.equal(
+    panicGame.snapshot.buildings.some(
+      building =>
+        building.kind === 'path' &&
+        building.x === panicVisitor.route[0]!.x &&
+        building.z === panicVisitor.route[0]!.z,
+    ),
+    false,
+    'panic escape may leave the footpath',
   )
 
   const leftover = abandonVisitorCamp(

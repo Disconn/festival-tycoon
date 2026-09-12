@@ -21,6 +21,8 @@ export type CampInstallation = {
   ownerId: string
   contributorIds: string[]
   decay?: number
+  appearanceId?: string
+  fabricColor?: number
 }
 
 export function installationIsClaimed(
@@ -57,7 +59,7 @@ export function isCollectibleCamp(
 }
 
 export function abandonVisitorCamp(
-  visitor: { id: string; campsite: CampingCell | null; campingPhase: CampingPhase },
+  visitor: { id: string; campsite: CampingCell | null; campingPhase: CampingPhase; color?: number },
   installations: readonly CampInstallation[],
   createId: () => string,
 ): CampInstallation[] {
@@ -102,6 +104,8 @@ export function abandonVisitorCamp(
       id: createId(),
       cell: { ...visitor.campsite },
       kind: 'tent',
+      appearanceId: visitor.id,
+      fabricColor: visitor.color,
       ownerId: '',
       contributorIds: [],
       decay: 20,

@@ -44,7 +44,11 @@ function crowdingValue(weightedPeople: number): number {
 }
 
 export class CrowdingSystem {
-  calculate(visitors: readonly CrowdingVisitor[]): {
+  calculate(
+    visitors: readonly CrowdingVisitor[],
+    relaxedCells?: ReadonlySet<string>,
+    relaxedScale = SIMULATION_CONFIG.atmosphere.danceFloorCrowdingScale,
+  ): {
     snapshot: CrowdingSnapshot
     visitorValues: Map<string, number>
   } {
@@ -91,12 +95,16 @@ export class CrowdingSystem {
     })
 
     const cells = [...weightedCells.values()]
-      .map((cell) => ({
-        x: cell.x,
-        z: cell.z,
-        elevation: cell.elevation,
-        value: crowdingValue(cell.weight),
-      }))
+      .map((cell) => {
+        const raw = crowdingValue(cell.weight)
+        const relaxed = relaxedCells?.has(key(cell.x, cell.z, cell.elevation))
+        return {
+          x: cell.x,
+          z: cell.z,
+          elevation: cell.elevation,
+          value: relaxed ? raw * relaxedScale : raw,
+        }
+      })
       .filter((cell) => cell.value > SIMULATION_CONFIG.crowding.visibleThreshold)
     const valuesByCell = new Map(
       cells.map((cell) => [key(cell.x, cell.z, cell.elevation), cell.value]),

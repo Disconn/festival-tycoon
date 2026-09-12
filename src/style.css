@@ -828,6 +828,19 @@ button {
   pointer-events: auto;
 }
 
+.ride-builder { left: 12px; z-index: 35; }
+.ride-builder .coaster-access-actions button { display: grid; gap: 5px; min-height: 88px; padding: 10px; }
+.ride-builder .coaster-access-actions button > span { font-size: 25px; }
+.ride-builder .coaster-access-actions button small { font-size: 10px; }
+.ride-builder button[aria-pressed='true'] { background: #775b31; border-color: #e2c57e; }
+.ride-builder .ride-placement-help { margin: 10px 0; font-size: 12px; line-height: 1.5; }
+.ride-builder .ride-height-controls { display: grid; grid-template-columns: 1fr 70px 1fr; gap: 6px; margin: 9px 0; }
+.ride-builder .ride-height-controls input { width: 100%; min-width: 0; text-align: center; color: #f3e8cb; background: #233d35; border: 1px solid #8a9c80; }
+.ride-builder .ride-height-controls button, .ride-builder .rct-editor-section > button { color: #f3e8cb; background: #3d584c; border: 1px solid #81977c; padding: 7px; cursor: pointer; }
+.ride-builder .rct-editor-section > button { width: 100%; margin-top: 10px; min-height: 36px; }
+.ride-builder #ride-platform-height { font-size: 11px; line-height: 1.5; }
+.ride-builder[hidden], .ride-builder [hidden] { display: none !important; }
+
 .coaster-builder > label,
 .coaster-start-direction > span {
   display: block;
@@ -907,6 +920,7 @@ button {
 
 .track-navigation button,
 .delete-track,
+.coaster-options > button,
 .entity-action-row button {
   padding: 7px;
   color: #eaf4ee;
@@ -995,6 +1009,11 @@ button {
   grid-template-columns: repeat(9, 1fr);
   gap: 3px;
 }
+
+#track-special-palette { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+#track-special-palette button { min-height: 64px; padding: 5px 3px; }
+#track-special-palette button small { white-space: normal; font-size: 10px; line-height: 1.2; }
+#bungee-options input { width: 75px; margin: 8px; }
 
 .track-piece-palette button {
   padding-inline: 1px;
@@ -1697,6 +1716,15 @@ button {
   white-space: nowrap;
 }
 
+.visitor-overview-panel td:first-child {
+  max-width: 4.5em;
+  font-variant-numeric: tabular-nums;
+}
+
+.visitor-overview-panel td:nth-child(2) {
+  max-width: 420px;
+}
+
 .visitor-overview-panel tbody tr {
   cursor: pointer;
 }
@@ -2348,3 +2376,21 @@ body:has(.staff-details:not([hidden])) .crowding-panel { visibility: hidden; }
 .app-install-dialog li { margin-bottom: 10px; }
 .app-install-dialog button { min-height: 44px; min-width: 44px; background: #3f715b; color: #f2efd8; border: 1px solid #819b8c; padding: 8px 14px; }
 .app-install-dialog small { display: block; margin-bottom: 12px; overflow-wrap: anywhere; }
+
+/* Keep the complete ride controls above the time/FPS bar on short screens. */
+.coaster-builder.ride-builder { max-height: calc(100dvh - var(--topbar-gap-top, 100px) - 58px); padding: 10px; }
+.ride-builder > p { min-height: 0; padding: 7px; margin: 8px 0; font-size: 11px; line-height: 1.35; }
+.ride-builder .coaster-access-actions { margin-top: 6px; }
+.ride-builder .coaster-access-actions button { min-height: 70px; padding: 7px; gap: 3px; }
+.ride-builder .ride-placement-help { font-size: 11px; line-height: 1.35; margin: 7px 0; }
+.ride-builder .rct-editor-section { margin-top: 6px; padding: 7px; }
+.ride-builder #ride-platform-height { margin: 7px 0; font-size: 10px; }
+.ride-builder .construction-actions { margin-top: 7px; }
+
+@media (max-width: 900px), (pointer: coarse) {
+  .game-shell .ride-builder.placing-access { max-height: min(270px, 43dvh); }
+  .ride-builder.placing-access #ride-tower-construction,
+  .ride-builder.placing-access #ride-platform-height,
+  .ride-builder.placing-access > .construction-actions,
+  .ride-builder.placing-access > #ride-builder-status { display: none; }
+}

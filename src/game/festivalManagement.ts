@@ -7,6 +7,8 @@ import { createInfrastructure, infrastructureAction, orderGoods, consumeLocal } 
 import type { Infrastructure, InfrastructureAction } from './supplyChain'
 import type { GameSnapshot, Visitor, ActionResult } from './GameState'
 import { hashStringSeed } from './rng'
+import { SIMULATION_CONFIG } from './simulationConfig'
+import { CONCERT_TOPLESS_CROWD_THOUGHT, CONCERT_TOPLESS_THOUGHT } from './visitorThoughts'
 
 export const AUDIENCES = ['music', 'party', 'family', 'comfort', 'camping'] as const
 export type Audience = typeof AUDIENCES[number]
@@ -130,14 +132,19 @@ export function activeBookings(s: Readonly<GameSnapshot>): Booking[] {
   if (!s.festival.enabled || s.festival.finished) return []
   return s.festival.bookings.filter(b => b.day === s.day && s.minute >= b.start && s.minute < b.start + b.duration)
 }
-export function showIssue(s: Readonly<GameSnapshot>, booking: Booking): string | null {
+export function watchableBookings(s: Readonly<GameSnapshot>): Booking[] {
+  if (!s.festival.enabled || s.festival.finished) return []
+  const lead = SIMULATION_CONFIG.atmosphere.concertArriveEarlyMinutes
+  return s.festival.bookings.filter(b => b.day === s.day && s.minute >= b.start - lead && s.minute < b.start + b.duration)
+}
+export function showIssue(s: Readonly<GameSnapshot>, booking: Booking, atMinute = s.minute): string | null {
   const stage = s.buildings.find(b => b.id === booking.stageId && b.kind === 'stage')
   const band = BANDS.find(b => b.id === booking.bandId)
   if (!stage || !band) return 'Bühne fehlt'
   if (band.draw >= 60 && buildingFootprint(stage).some(c=>groundInfo(s,c.x,c.z).bearing<3)) return 'Großauftritt braucht ein entwässertes, gepflastertes Bühnenfundament'
   if (!s.stageForecourtCells.some(c => stageDistance(stage,c) <= 8)) return 'Bühnenvorplatz im Umkreis von 8 Feldern fehlt'
   if (!s.power.poweredBuildingIds.includes(stage.id)) return 'Bühne ohne Strom'
-  if (!s.dayPlan.offers.stages[Math.floor(s.minute / 60) % 24]) return 'Bühnen laut Tagesplan geschlossen'
+  if (!s.dayPlan.offers.stages[Math.floor(atMinute / 60) % 24]) return 'Bühnen laut Tagesplan geschlossen'
   const speakers = s.buildings.filter(b => ['directionalSpeaker', 'omniSpeaker', 'delayTower'].includes(b.kind) &&
     stageDistance(stage,b) <= 10 && s.power.poweredBuildingIds.includes(b.id)).length
   if (speakers + (stage.stageDesign ? stageStats(stage.stageDesign).speakers : 0) < band.speakers) return `${band.speakers} aktive Lautsprecher im Umkreis von 10 Feldern nötig`
@@ -300,6 +307,7 @@ export function updateFestival(s: GameSnapshot): void {
   for(const show of shows){const genre=bandGenre(show.band.id);const played=Math.max(0,Math.min(s.minute,show.booking.start+show.booking.duration)-Math.max(s.minute-minutes,show.booking.start));f.playedMusic[genre]=(f.playedMusic[genre]??0)+played*(.5+show.band.draw/100)}
   const audienceConflicts = new Map(GENRES.map(g=>[g.id,shows.filter(show=>musicAppeal(g.id,show.band.id)>=.7).length]))
   const cover = f.upgrades.shelter ? Math.min(1, 250 / Math.max(1, s.visitors.length)) : 0
+  const toplessOnSite = s.visitors.some((visitor) => (visitor.toplessMinutes ?? 0) > 0)
   let happiness = 0
   for (const visitor of s.visitors) {
     if (!visitor.audience) assignAudience(visitor, f)
@@ -317,7 +325,10 @@ export function updateFestival(s: GameSnapshot): void {
         const affinity=musicAppeal(visitor.musicTaste,show.band.id),match=affinity>=.7
         visitor.needs.fun = clamp(visitor.needs.fun + minutes * (1.5*affinity) * (1 + show.boost))
         f.metrics.concertMinutes += minutes
-        visitor.thought = `${show.band.name} spielen live – ${match ? 'genau mein Geschmack!' : 'gute Stimmung!'}`
+        if ((visitor.toplessMinutes ?? 0) > 0) visitor.thought = CONCERT_TOPLESS_THOUGHT
+        else if (!(toplessOnSite && visitor.thought === CONCERT_TOPLESS_CROWD_THOUGHT)) {
+          visitor.thought = `${show.band.name} spielen live – ${match ? 'genau mein Geschmack!' : 'gute Stimmung!'}`
+        }
         break
       }
       if (distance < 12 && sheltered && s.minute >= 21 * 60 && !f.upgrades.quiet) {
@@ -331,7 +342,13 @@ export function updateFestival(s: GameSnapshot): void {
     }
     if ((audienceConflicts.get(visitor.musicTaste) ?? 0) > 1) {
       visitor.needs.fun = clamp(visitor.needs.fun - minutes * 0.15)
-      if (visitor.state === 'partying') visitor.thought = 'Meine Lieblingsbands spielen gleichzeitig – ich verpasse einen Auftritt.'
+      if (
+        visitor.state === 'partying' &&
+        (visitor.toplessMinutes ?? 0) <= 0 &&
+        visitor.thought !== CONCERT_TOPLESS_CROWD_THOUGHT
+      ) {
+        visitor.thought = 'Meine Lieblingsbands spielen gleichzeitig – ich verpasse einen Auftritt.'
+      }
     }
     happiness += (visitor.needs.fun + visitor.needs.energy + visitor.needs.hunger + visitor.needs.toilet) / 4
     f.metrics.weatherImpact += weatherImpact

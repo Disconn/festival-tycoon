@@ -1,8 +1,8 @@
 import type { BuildingKind } from './catalog'
 
-export const SCENERY_KINDS = ['tree', 'hedge', 'shrub', 'flowerbed', 'planter', 'rock', 'statue', 'banner'] as const
+export const SCENERY_KINDS = ['tree', 'hedge', 'shrub', 'flowerbed', 'planter', 'rock', 'statue', 'banner', 'bunting', 'stringLights', 'hayBale', 'parasol', 'picnicTable', 'festivalSign'] as const
 export function isScenery(kind: string): boolean { return (SCENERY_KINDS as readonly string[]).includes(kind) }
-export function isEdgeScenery(kind: string): boolean { return kind === 'hedge' || kind === 'banner' }
+export function isEdgeScenery(kind: string): boolean { return kind === 'hedge' || kind === 'banner' || kind === 'bunting' || kind === 'stringLights' }
 export type SceneryObject = { kind: BuildingKind; rotation: number; decorationSlot?: number }
 
 /** Slots are absolute map positions. Rotation changes orientation, not save coordinates. */

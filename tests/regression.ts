@@ -1,4 +1,9 @@
 import { testMusicPlanning } from './musicPlanning'
+import { testPixelPeople } from './pixelPeople'
+import { testCampingModels } from './campingModels'
+import { testRideAccess } from './rideAccess'
+import { testFestivalAdditions } from './festivalAdditions'
+import { testTerrainSurface } from './terrainSurface'
 import { testScenery } from './scenery'
 import { testMobileTouch } from './mobileTouch'
 import { testPerformanceGuards } from './performanceGuards'
@@ -33,6 +38,8 @@ function test(name: string, run: () => void) {
 }
 
 testMobileTouch()
+testPixelPeople()
+testCampingModels()
 
 function fixture(count = 20): GameState {
   const initial = structuredClone(new GameState().snapshot)
@@ -57,6 +64,9 @@ function fixture(count = 20): GameState {
 
 testPerformanceGuards(fixture)
 testScenery(fixture)
+testFestivalAdditions(fixture)
+testRideAccess(fixture)
+testTerrainSurface(fixture)
 
 test('Base64 saves preserve Unicode and full worlds without overwriting local saves', () => {
   const original = fixture(2)
@@ -114,7 +124,7 @@ test('abandoned tent colors fade smoothly without hue jumps across camp rebuilds
     snapshot.campInstallations[0]!.decay = decay
     view.update(snapshot)
     const root = (view as any).batchedProps.children[0]
-    const tents = root.children.find((batch: any) => batch.geometry.type === 'ConeGeometry')
+    const tents = root.children.find((batch: any) => batch.geometry.userData.campPart === 'tent-fabric')
     const actual = new Color()
     tents.getColorAt(0, actual)
     for (const channel of ['r', 'g', 'b'] as const) {
@@ -124,7 +134,7 @@ test('abandoned tent colors fade smoothly without hue jumps across camp rebuilds
     previous = actual.clone()
     view.invalidate()
     view.update(structuredClone(snapshot))
-    const rebuilt = (view as any).batchedProps.children[0].children.find((batch: any) => batch.geometry.type === 'ConeGeometry')
+    const rebuilt = (view as any).batchedProps.children[0].children.find((batch: any) => batch.geometry.userData.campPart === 'tent-fabric')
     rebuilt.getColorAt(0, actual)
     assert.deepEqual(actual, previous, 'rebuilding the scene preserves tent colors')
   }

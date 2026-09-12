@@ -3,6 +3,9 @@ import { Group, InstancedMesh, Mesh, Vector3 } from 'three'
 import { GameState } from '../src/game/GameState'
 import { SIMULATION_CONFIG } from '../src/game/simulationConfig'
 import { createRetroBuilding, batchRetroBuildings, DETAILED_BUILDINGS } from '../src/view/retroBuildings'
+import { FestivalLightsView } from '../src/view/FestivalLightsView'
+import { createAttractionAccess } from '../src/view/attractionAccess'
+import { disposeObject3D } from '../src/view/disposeObject3D'
 
 export function testPerformanceGuards(fixture: (count?: number) => GameState): void {
   const game = fixture(100), internal = game as any
@@ -69,5 +72,70 @@ export function testPerformanceGuards(fixture: (count?: number) => GameState): v
     assert.equal(batch.count, 2)
     assert.ok(batch.boundingSphere!.containsPoint(new Vector3(3, 2, -1)))
   }
+  const lightGame = fixture(1), lightSnapshot = lightGame.snapshot
+  const accessModels = new Group()
+  for (const theme of ['carousel', 'bungee', 'coaster'] as const) for (const kind of ['entrance', 'exit'] as const) {
+    const a = createAttractionAccess(kind, theme), b = createAttractionAccess(kind, theme)
+    const mesh = a.children[0] as Mesh
+    assert.equal(a.children.length, 1, 'access details are merged into one mesh')
+    assert.equal(mesh.geometry, (b.children[0] as Mesh).geometry, 'gates reuse geometry')
+    assert.ok(mesh.geometry.getAttribute('position').count < 5000, 'access geometry stays bounded')
+    mesh.geometry.computeBoundingBox()
+    assert.ok(mesh.geometry.boundingBox!.min.x >= -.5 && mesh.geometry.boundingBox!.max.x <= .5, 'gate stays inside its tile')
+    const preview = createAttractionAccess(kind, theme, true)
+    assert.notEqual((preview.children[0] as Mesh).material, mesh.material, 'preview tint cannot recolor built gates')
+    let sharedDisposed = false
+    mesh.geometry.addEventListener('dispose', () => { sharedDisposed = true })
+    disposeObject3D(preview)
+    assert.equal(sharedDisposed, false, 'replacing previews preserves cached geometry')
+    accessModels.add(a, b)
+  }
+  assert.equal(batchRetroBuildings(accessModels).children.length, 6, 'gate draw calls depend on theme, not gate count')
+  lightSnapshot.minute = 23 * 60
+  lightSnapshot.power.poweredBuildingIds = ['unpowered-food-light', 'unpowered-lamp-light']
+  lightSnapshot.dayPlan.offers.food[23] = true
+  lightSnapshot.dayPlan.offers.lights[23] = true
+  for (let index = 0; index < 12; index++) {
+    lightSnapshot.buildings.push({
+      id: `string-light-${index}`,
+      kind: 'stringLights',
+      x: index,
+      z: 0,
+      elevation: 0,
+      rotation: 0,
+      decorationSlot: 0,
+      price: 0,
+    })
+  }
+  lightSnapshot.buildings.push({
+    id: 'unpowered-food-light',
+    kind: 'food',
+    x: 15,
+    z: 0,
+    elevation: 0,
+    rotation: 0,
+    price: 10,
+  }, {
+    id: 'unpowered-lamp-light',
+    kind: 'lighting',
+    x: 17,
+    z: 0,
+    elevation: 0,
+    rotation: 0,
+    price: 0,
+  })
+  Object.assign(lightSnapshot.visitors[0]!, {
+    campsite: { x: 16, z: 0, elevation: 0 },
+    campingPhase: 'resting',
+  })
+  const festivalLights = new FestivalLightsView()
+  festivalLights.update(lightSnapshot)
+  assert.equal((festivalLights as any).bulbs.count, 15, 'all currently active sources remain visible without glow meshes')
+  assert.equal((festivalLights as any).pool.length, 15, 'every active source keeps its own light cast without camera selection')
+  lightSnapshot.minute = 12 * 60
+  lightSnapshot.dayPlan.offers.food[12] = false
+  lightSnapshot.dayPlan.offers.lights[12] = false
+  festivalLights.update(lightSnapshot)
+  assert.equal((festivalLights as any).bulbs.count, 1, 'scheduled sources switch off while a sleeping tent may stay lit')
   console.log('PASS deterministic decision budget, camp route bound, cache refresh and detailed asset batching')
 }

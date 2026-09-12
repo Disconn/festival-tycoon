@@ -24,6 +24,9 @@ const boundGames = new WeakSet<GameState>()
 export function enableMultiplayerCommands(game: GameState): void {
   if (boundGames.has(game)) return
   boundGames.add(game)
+  game.setRideAccess = wrap(game, game.setRideAccess, (buildingId, accessType, x, z) => ({type:'setRideAccess',buildingId,accessType,x,z}))
+  game.placeBungee = wrap(game, game.placeBungee, (x, z, height) => ({ type: 'placeBungee', x, z, height }))
+  game.setBungeeHeight = wrap(game, game.setBungeeHeight, (id, height) => ({ type: 'setBungeeHeight', id, height }))
   game.place = wrap(game, game.place, (kind, x, z, decorationSlot) => ({
     type: 'place',
     kind,
@@ -281,6 +284,8 @@ export function enableMultiplayerCommands(game: GameState): void {
     }),
   )
   game.addDebugMoney = wrap(game, game.addDebugMoney, () => ({ type: 'addDebugMoney' }))
+  game.clearWasteForDebug = wrap(game, game.clearWasteForDebug, () => ({ type: 'clearWasteForDebug' }))
+  game.placeSceneryLine = wrap(game, game.placeSceneryLine, (kind, cells, slot, rotation) => ({ type: 'placeSceneryLine', kind, cells, slot, rotation }))
   game.removeVisitorCarsForDebug = wrap(game, game.removeVisitorCarsForDebug, () => ({
     type: 'removeVisitorCars',
   }))
