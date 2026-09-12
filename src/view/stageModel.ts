@@ -1,16 +1,31 @@
-import { Group, Mesh, BoxGeometry, ConeGeometry, SphereGeometry, BufferGeometry, Float32BufferAttribute, LineSegments, LineBasicMaterial, SpotLight, Vector3, DoubleSide, MeshStandardMaterial, MeshBasicMaterial, AdditiveBlending } from 'three'
+import { Group, Mesh, BoxGeometry, ConeGeometry, SphereGeometry, BufferGeometry, Float32BufferAttribute, LineSegments, LineBasicMaterial, SpotLight, Vector3, Quaternion, DoubleSide, MeshStandardMaterial, MeshBasicMaterial, AdditiveBlending } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { isTruss, stageMotion, partHeight, type StageDesign, type ShowPhase } from '../game/stageDesign'
+import { isTruss, stageMotion, partHeight, mountOffset, mountDirection, type StageDesign, type StagePart, type ShowPhase } from '../game/stageDesign'
 
+const unitX=new Vector3(1,0,0)
 export function createStageModel(d:StageDesign,options:{floor?:boolean;partIds?:Set<string>;effects?:boolean;lightBudget?:number}={}):Group {
   const root=new Group(), buckets=new Map<string,BufferGeometry[]>(), effects:Group[]=[]
-  let moving=false
-  const movers:Group[]=[]
   let origin: {x:number;z:number;rotation:number}|undefined
+  const rotateAround=(x:number,z:number)=>{
+    if(!origin)return{x,z}
+    const angle=origin.rotation*Math.PI/2,dx=x-origin.x,dz=z-origin.z
+    return {x:origin.x+dx*Math.cos(angle)+dz*Math.sin(angle),z:origin.z-dx*Math.sin(angle)+dz*Math.cos(angle)}
+  }
   const box=(x:number,y:number,z:number,w:number,h:number,depth:number,color:string)=>{
-    if(origin){const angle=origin.rotation*Math.PI/2,dx=x-origin.x,dz=z-origin.z;x=origin.x+dx*Math.cos(angle)+dz*Math.sin(angle);z=origin.z-dx*Math.sin(angle)+dz*Math.cos(angle);if(origin.rotation%2)[w,depth]=[depth,w]}
+    const r=rotateAround(x,z);x=r.x;z=r.z
+    if(origin&&origin.rotation%2)[w,depth]=[depth,w]
     const g=new BoxGeometry(w,h,depth);g.translate(x,y,z)
-    const key=(moving?"moving|":"")+color;const list=buckets.get(key)??[];list.push(g);buckets.set(key,list)
+    const list=buckets.get(color)??[];list.push(g);buckets.set(color,list)
+  }
+  /** A thin box spanning two points; used for the diagonal lattice bracing of 3-point trusses. */
+  const strut=(x1:number,y1:number,z1:number,x2:number,y2:number,z2:number,thickness:number,color:string)=>{
+    const r1=rotateAround(x1,z1),r2=rotateAround(x2,z2)
+    const dx=r2.x-r1.x,dy=y2-y1,dz=r2.z-r1.z,len=Math.hypot(dx,dy,dz)
+    if(len<1e-4)return
+    const g=new BoxGeometry(len,thickness,thickness)
+    g.applyQuaternion(new Quaternion().setFromUnitVectors(unitX,new Vector3(dx,dy,dz).multiplyScalar(1/len)))
+    g.translate((r1.x+r2.x)/2,(y1+y2)/2,(r1.z+r2.z)/2)
+    const list=buckets.get(color)??[];list.push(g);buckets.set(color,list)
   }
   if(options.floor!==false){
     const w=d.tileWidth??1,h=d.tileDepth??1,cellWidth=d.width/w,cellDepth=d.depth/h
@@ -25,10 +40,9 @@ export function createStageModel(d:StageDesign,options:{floor?:boolean;partIds?:
     }
   }
   let lights=0
-  const effect=(kind:string,x:number,y:number,z:number,color:string,hanging:boolean)=>{
+  const effect=(kind:string,x:number,y:number,z:number,color:string,dir:{x:number;y:number;z:number})=>{
     if(options.effects===false||effects.length>=32)return
-    const rig=new Group();rig.position.set(x,y,z);rig.userData.kind=kind;rig.userData.index=effects.length;rig.userData.hanging=hanging;rig.userData.rotation=origin?.rotation??0;rig.userData.base=rig.position.clone();rig.userData.length=kind==='laser'?Math.max(4,d.depth*.8):4
-    rig.userData.moving=moving
+    const rig=new Group();rig.position.set(x,y,z);rig.userData.kind=kind;rig.userData.index=effects.length;rig.userData.dir=dir;rig.userData.rotation=origin?.rotation??0;rig.userData.base=rig.position.clone();rig.userData.length=kind==='laser'?Math.max(4,d.depth*.8):4
     if(kind==='fireworks'||kind==='sparks'){
       const points:number[]=[]
       for(let n=0;n<40;n++){const angle=n*2.399963, height=(n+.5)/40, radius=Math.sqrt(1-height*height);points.push(radius*Math.cos(angle),height,radius*Math.sin(angle),radius*Math.cos(angle)*.87,height*.87,radius*Math.sin(angle)*.87)}
@@ -55,20 +69,48 @@ export function createStageModel(d:StageDesign,options:{floor?:boolean;partIds?:
   }
   for(const p of d.parts){
     if(options.partIds&&!options.partIds.has(p.id))continue
-    const x=p.x-d.width/2+.5,z=p.z-d.depth/2+.5,y=partHeight(d,p),c=p.color
-    origin={x,z,rotation:p.rotation}
-    moving=d.parts.some(t=>t.id===p.mount&&t.kind==='motorTruss')
+    let x=p.x-d.width/2+.5,z=p.z-d.depth/2+.5,y=partHeight(d,p);const c=p.color
+    const truss:StagePart|undefined=p.mount?d.parts.find(t=>t.id===p.mount):undefined
+    if(truss){const off=mountOffset(truss,p.mountFace);x+=off.dx;y+=off.dy;z+=off.dz}
+    origin={x,z,rotation:truss?(truss.orientation==='vertical'?0:truss.rotation):p.rotation}
     if(isTruss(p.kind)){
-      for(const side of [-1,1]){moving=false;box(x+side*.9,1.65,z,.12,2.7,.14,'#b6c5cf');if(p.kind==='motorTruss')box(x+side*.9,3.25,z,.3,.3,.3,'#e6b64a');moving=p.kind==='motorTruss';box(x,3,z+side*.13,2.2,.12,.08,'#d5dce3')}
-      for(let k=-4;k<=4;k++)box(x+k*.24,2.86,z,.06,.35,.2,'#8a9aab')
+      const chordColor='#b6c5cf',braceColor='#8a9aab',r=.13
+      if(p.orientation==='vertical'){
+        const half=1.5,corners=[{dx:0,dz:r},{dx:-r*.87,dz:-r*.5},{dx:r*.87,dz:-r*.5}]
+        for(const corner of corners)strut(x+corner.dx,y+.02,z+corner.dz,x+corner.dx,y+half*2-.02,z+corner.dz,.045,chordColor)
+        const braces=5
+        for(let i=0;i<braces;i++){
+          const t0=.15+(i/braces)*(half*2-.3),t1=.15+((i+1)/braces)*(half*2-.3)
+          const c0=corners[i%3]!,c1=corners[(i+1)%3]!
+          strut(x+c0.dx,y+t0,z+c0.dz,x+c1.dx,y+t1,z+c1.dz,.035,braceColor)
+        }
+        if(d.parts.some(t=>t.kind==='truss'&&t.stackOn===p.id))box(x,y+half*2,z,.3,.3,.3,braceColor)
+      }else{
+        const half=.5,corners=[{dy:.22,dz:0},{dy:.04,dz:-r*.87},{dy:.04,dz:r*.87}]
+        for(const corner of corners)strut(x-half+.03,y+corner.dy,z+corner.dz,x+half-.03,y+corner.dy,z+corner.dz,.045,chordColor)
+        const braces=3
+        for(let i=0;i<braces;i++){
+          const t0=-half+.06+(i/braces)*(half*2-.12),t1=-half+.06+((i+1)/braces)*(half*2-.12)
+          const c0=corners[i%3]!,c1=corners[(i+1)%3]!
+          strut(x+t0,y+c0.dy,z+c0.dz,x+t1,y+c1.dy,z+c1.dz,.035,braceColor)
+        }
+        const support=p.stackOn?d.parts.find(q=>q.id===p.stackOn):undefined
+        if(support?.orientation==='vertical')box(x,y+.04,z,.3,.3,.3,braceColor)
+        const axisX=p.rotation%2===0
+        for(const side of [-1,1]){
+          const nx=axisX?p.x:p.x+side,nz=axisX?p.z+side:p.z
+          const neighbor=d.parts.find(t=>t.kind==='truss'&&t.x===nx&&t.z===nz&&Math.abs(partHeight(d,t)-y)<.05)
+          if(neighbor){const savedOrigin:typeof origin=origin;origin=undefined;box(x+(nx-p.x)/2,y+.13,z+(nz-p.z)/2,.28,.28,.28,braceColor);origin=savedOrigin}
+        }
+      }
     }else if(p.kind==='speaker'){
       box(x,y+.4,z,.65,.8,.5,'#171d28');for(const yy of [.2,.55]){box(x,y+yy,z+.26,.43,.25,.04,'#414859');box(x,y+yy,z+.29,.18,.12,.02,c)}
     }else if(p.kind==='spot'||p.kind==='laser'){
-      box(x,y+.15,z,.45,.3,.42,'#17202d');box(x,p.mount?y-.02:y+.33,z,.27,.08,.3,c);effect(p.kind,x,p.mount?y-.05:y+.38,z,c,!!p.mount)
+      box(x,y+.15,z,.45,.3,.42,'#17202d');box(x,y+.33,z,.27,.08,.3,c);effect(p.kind,x,y+.38,z,c,mountDirection(truss,p.mountFace))
     }else if(p.kind==='fireworks'||p.kind==='sparks'){
-      box(x,y+.15,z,.65,.3,.65,'#303847');for(const dx of [-.18,.18])box(x+dx,y+.38,z,.13,.25,.13,c);effect(p.kind,x,y+.5,z,c,false)
+      box(x,y+.15,z,.65,.3,.65,'#303847');for(const dx of [-.18,.18])box(x+dx,y+.38,z,.13,.25,.13,c);effect(p.kind,x,y+.5,z,c,{x:0,y:1,z:0})
     }else if(p.kind==='fog'){
-      box(x,y+.15,z,.6,.3,.4,'#727789');box(x,y+.18,z+.24,.2,.12,.1,c);effect('fog',x,y+.1,z,'#b9cbd6',false)
+      box(x,y+.15,z,.6,.3,.4,'#727789');box(x,y+.18,z+.24,.2,.12,.1,c);effect('fog',x,y+.1,z,'#b9cbd6',{x:0,y:1,z:0})
     }else if(p.kind==='screen'||p.kind==='banner'){
       box(x,y+.6,z,.9,1.2,.1,'#141c29');for(let a=0;a<5;a++)for(let b=0;b<6;b++)box(x+(a-2)*.16,y+.15+b*.17,z+.07,.14,.14,.03,(a+b)%3?c:'#f3dfb0')
     }else if(p.kind==='star'){
@@ -77,8 +119,7 @@ export function createStageModel(d:StageDesign,options:{floor?:boolean;partIds?:
       box(x,y+.6,z,.15,1.2,.15,'#9c7353');box(x,y+1.2,z,1,.15,.3,c);box(x,y+1.3,z,.3,.15,1,c)
     }else box(x,y+.12,z,.92,.24,.92,c)
   }
-  for(const [key,geometries] of buckets){const color=key.replace("moving|", "");const merged=mergeGeometries(geometries);geometries.forEach(g=>g.dispose());if(merged){const mesh=new Mesh(merged,new MeshStandardMaterial({color,roughness:.85,flatShading:true}));mesh.receiveShadow=true;if(key.startsWith("moving|")){const group=new Group();group.add(mesh);group.userData.restY=0;root.add(group);movers.push(group)}else root.add(mesh)}}
-  root.userData.moving=movers
+  for(const [color,geometries] of buckets){const merged=mergeGeometries(geometries);geometries.forEach(g=>g.dispose());if(merged){const mesh=new Mesh(merged,new MeshStandardMaterial({color,roughness:.85,flatShading:true}));mesh.receiveShadow=true;root.add(mesh)}}
   root.userData.effects=effects
   return root
 }
@@ -101,7 +142,8 @@ export function animateStageModel(root:Group,phase:ShowPhase,time:number,active:
     }else if(fog){
       rig.children.forEach((child,n)=>{const mesh=child as Mesh,mat=mesh.material as MeshBasicMaterial;mat.opacity=phase.fog/100*(.065+Math.sin(t*.25+n)*.015);mesh.position.y=.12+n*.18+Math.sin(t*.3+n)*.08;mesh.rotation.y=Math.sin(t*.1+n)*.12})
     }else{
-      const direction=new Vector3(Math.sin(t)*.3,rig.userData.hanging?-1:1,.15+Math.cos(t*.7)*.2).normalize().applyAxisAngle(up,rig.userData.rotation*Math.PI/2)
+      const base=(rig.userData.dir as {x:number;y:number;z:number}|undefined)??{x:0,y:1,z:0}
+      const direction=new Vector3(base.x+Math.sin(t)*.15,base.y+Math.cos(t*.83)*.15,base.z+Math.cos(t*.7)*.15).normalize().applyAxisAngle(up,rig.userData.rotation*Math.PI/2)
       rig.quaternion.setFromUnitVectors(up,direction)
       for(const child of rig.children){const mat=(child as Mesh).material as MeshBasicMaterial;mat.color.set(phase.color);mat.opacity=phase.intensity/100*(rig.userData.kind==='laser'?.8:.035+phase.fog*.001)}
     }

@@ -21,7 +21,7 @@ export function testStageInteraction(fixture:(count?:number)=>GameState){
   updateStageBand(performanceStage,'meadow',.4,false);assert.equal(performers.visible,false)
   updateStageBand(performanceStage,'neon',1,true,performerDesign);assert.equal(performanceStage.userData.band.children.length,2);assert.equal(performers.parent,null)
   assert.ok(bandRoles('brass').includes('brass'));assert.ok(bandRoles('campfire').includes('guitar'))
-  const occupied=defaultStageDesign();occupied.tileWidth=2;occupied.tileDepth=2;occupied.audience=[{x:0,z:1}];occupied.parts=[{id:'motor',kind:'motorTruss',x:5,z:4,rotation:0,mount:null,brand:'budget',color:'#ffffff'}]
+  const occupied=defaultStageDesign();occupied.tileWidth=2;occupied.tileDepth=2;occupied.audience=[{x:0,z:1}];occupied.parts=[{id:'motor',kind:'truss',orientation:'horizontal',x:5,z:4,rotation:0,mount:null,brand:'budget',color:'#ffffff'}]
   for(const pos of bandPositions(occupied)){const x=pos.x+occupied.width/2-.5,z=pos.z+occupied.depth/2-.5;assert.ok(!(x<4&&z>=3));assert.ok(!(z===4&&Math.abs(x-5)<=1))}
   occupied.parts=[];for(let x=0;x<occupied.width;x++)for(let z=0;z<occupied.depth;z++)occupied.parts.push({id:`${x}-${z}`,kind:'speaker',x,z,rotation:0,mount:null,brand:'budget',color:'#ffffff'})
   assert.equal(bandPositions(occupied).length,0);disposeStageModel(performanceStage)
@@ -30,7 +30,7 @@ export function testStageInteraction(fixture:(count?:number)=>GameState){
   for(let n=2;n<=4;n++){const next=stagePlacement(d,settings,{x:1,z:1},`box${n-1}`);next.id=`box${n}`;d.parts.push(next);assert.equal(stageDesignIssue(d),null);assert.ok(Math.abs(partHeight(d,next)-(.3+(n-1)*.8))<.001)}
   const tooHigh=stagePlacement(d,settings,{x:1,z:1},'box4');assert.ok(stageDesignIssue({...d,parts:[...d.parts,tooHigh]}))
   const removed=removeStagePart(d,'box2');assert.deepEqual(removed.parts.map(p=>p.id),['box1'],'removing support also removes all higher speakers')
-  const rig=defaultStageDesign();rig.parts.push({id:'truss',kind:'truss',brand:'budget',x:3,z:2,rotation:0,mount:null,color:'#ffffff'})
+  const rig=defaultStageDesign();rig.parts.push({id:'truss',kind:'truss',orientation:'horizontal',brand:'budget',x:3,z:2,rotation:0,mount:null,color:'#ffffff'})
   const hanging=stagePlacement(rig,{...settings,kind:'spot'},{x:3,z:2},'truss');hanging.id='hanging';rig.parts.push(hanging)
   assert.equal(hanging.mount,'truss');assert.equal(stageDesignIssue(rig),null)
   const floor=stagePlacement(rig,{...settings,kind:'spot'},{x:5,z:4},'truss',true);floor.id='floor';rig.parts.push(floor);assert.equal(floor.mount,null)
@@ -40,28 +40,31 @@ export function testStageInteraction(fixture:(count?:number)=>GameState){
   animateStageModel(model,phase,1,true)
   const spots=model.userData.effects.filter((p:any)=>p.userData.kind==='spot')
   assert.equal(spots.length,2)
-  for(const spot of spots){const direction=new Vector3(0,1,0).applyQuaternion(spot.quaternion);assert.equal(direction.y<0,spot.userData.hanging,'hanging spots point down, floor spots point up');assert.ok(spot.userData.light instanceof SpotLight);assert.ok(spot.userData.light.intensity>0)}
+  for(const spot of spots){const direction=new Vector3(0,1,0).applyQuaternion(spot.quaternion);assert.equal(direction.y<0,spot.userData.dir.y<0,'hanging spots point down, floor spots point up');assert.ok(spot.userData.light instanceof SpotLight);assert.ok(spot.userData.light.intensity>0)}
   const laser=model.userData.effects.find((p:any)=>p.userData.kind==='laser');assert.ok(laser.children[0] instanceof LineSegments)
   const fog=model.userData.effects.find((p:any)=>p.userData.kind==='fog');assert.equal(fog.children.length,3);assert.ok(fog.children[0].scale.x>rig.width*.4)
   animateStageModel(model,phase,1,false);assert.ok(spots.every((p:any)=>p.userData.light.intensity===0));disposeStageModel(model)
-  const kinetic=defaultStageDesign();kinetic.parts=[{id:'lift',kind:'motorTruss',brand:'touring',x:3,z:2,rotation:0,mount:null,color:'#ffffff'}]
-  const movingSpot=stagePlacement(kinetic,{...settings,kind:'spot'},{x:3,z:2},'lift');movingSpot.id='moving';kinetic.parts.push(movingSpot)
-  kinetic.parts.push({...settings,id:'pyro',kind:'fireworks',x:1,z:4,mount:null},{...settings,id:'spark',kind:'sparks',x:5,z:4,mount:null})
-  assert.equal(stageDesignIssue(kinetic),null);assert.equal(movingSpot.mount,'lift')
-  assert.ok(stageDesignIssue({...kinetic,phases:kinetic.phases.map(p=>({...p,movement:101})) as typeof kinetic.phases}))
-  assert.ok(stageDesignIssue({...kinetic,parts:[...kinetic.parts,{...settings,id:'obstruction',x:2,z:2,mount:null}]}))
-  const kineticModel=createStageModel(kinetic,{lightBudget:2}),show={...phase,movement:100,pyro:100}
-  animateStageModel(kineticModel,show,0,true)
-  const movingLight=kineticModel.userData.effects.find((e:any)=>e.userData.kind==='spot')
-  const initialY=movingLight.position.y;animateStageModel(kineticModel,show,1,true)
-  assert.notEqual(movingLight.position.y,initialY);assert.equal(movingLight.userData.light.position.y,movingLight.position.y)
-  assert.ok(kineticModel.userData.moving[0].position.y<0)
-  const pyros=kineticModel.userData.effects.filter((e:any)=>['fireworks','sparks'].includes(e.userData.kind));assert.equal(pyros.length,2)
-  assert.ok(pyros.every((e:any)=>e.children[0] instanceof LineSegments))
-  animateStageModel(kineticModel,{...show,pyro:0},2,true);assert.ok(pyros.every((e:any)=>!e.visible))
-  animateStageModel(kineticModel,show,2,false);assert.ok(kineticModel.userData.effects.every((e:any)=>!e.visible));assert.equal(kineticModel.userData.moving[0].position.y,0)
-  assert.equal(removeStagePart(kinetic,'lift').parts.some(p=>p.id==='moving'),false)
-  assert.equal(stageDesignIssue(JSON.parse(JSON.stringify(kinetic))),null);disposeStageModel(kineticModel)
+  const tower=defaultStageDesign(),trussSettings={kind:'truss' as const,brand:'budget' as const,rotation:0,color:'#ffffff'}
+  const base=stagePlacement(tower,{...trussSettings,orientation:'vertical'},{x:2,z:2});base.id='base';tower.parts.push(base)
+  const mid=stagePlacement(tower,{...trussSettings,orientation:'vertical'},{x:2,z:2},'base');mid.id='mid';tower.parts.push(mid)
+  assert.equal(mid.stackOn,'base');assert.ok(Math.abs(partHeight(tower,mid)-3.3)<.001,'each vertical segment adds one post height')
+  const top=stagePlacement(tower,{...trussSettings,orientation:'vertical'},{x:2,z:2},'mid');top.id='top';tower.parts.push(top)
+  assert.equal(top.stackOn,'mid');assert.ok(Math.abs(partHeight(tower,top)-6.3)<.001);assert.equal(stageDesignIssue(tower),null)
+  const cap=stagePlacement(tower,{...trussSettings,orientation:'horizontal'},{x:2,z:2},'top');cap.id='cap';tower.parts.push(cap)
+  assert.equal(cap.stackOn,'top');assert.ok(Math.abs(partHeight(tower,cap)-9.3)<.001,'a horizontal cap sits exactly on top of the tower');assert.equal(stageDesignIssue(tower),null)
+  const beacon=stagePlacement(tower,{...settings,kind:'spot'},{x:2,z:2},'cap');beacon.id='beacon';tower.parts.push(beacon)
+  assert.equal(beacon.mount,'cap');assert.equal(stageDesignIssue(tower),null)
+  const westLight=stagePlacement(tower,{...settings,kind:'spot',mountFace:'sideA'},{x:2,z:2},'top');westLight.id='west';tower.parts.push(westLight)
+  assert.equal(westLight.mount,'top','vertical segments are mount points on all four sides');assert.equal(stageDesignIssue(tower),null)
+  const eastLight=stagePlacement(tower,{...settings,kind:'spot',mountFace:'sideB'},{x:2,z:2},'top');eastLight.id='east';tower.parts.push(eastLight)
+  assert.equal(stageDesignIssue(tower),null,'different faces of the same segment do not collide')
+  assert.ok(stageDesignIssue({...tower,parts:[...tower.parts,{...westLight,id:'west-dup'}]}),'the same face cannot be used twice')
+  const overTall=structuredClone(tower);let chain='cap'
+  for(let n=0;n<8;n++){const seg=stagePlacement(overTall,{...trussSettings,orientation:'vertical'},{x:2,z:2},chain);seg.id=`extra-${n}`;overTall.parts.push(seg);chain=seg.id}
+  assert.ok(stageDesignIssue(overTall),'towers cannot grow indefinitely')
+  assert.equal(removeStagePart(tower,'base').parts.length,0,'removing the base cascades through the whole tower and everything mounted on it')
+  const towerModel=createStageModel(tower,{lightBudget:2});disposeStageModel(towerModel)
+  assert.equal(stageDesignIssue(JSON.parse(JSON.stringify(tower))),null)
   const audience=defaultStageDesign();audience.tileWidth=3;audience.tileDepth=3;audience.width=9;audience.depth=9;audience.audience=[{x:0,z:1},{x:1,z:1}]
   assert.equal(stageDesignIssue(audience),null)
   assert.ok(stageDesignIssue({...audience,audience:[{x:1,z:1}]}),'sealed audience courtyards need an entrance')

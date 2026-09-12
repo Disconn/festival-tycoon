@@ -1,7 +1,6 @@
 export const COMPONENTS = {
   deck: {name:'Bühnenpodest',cost:80,party:0,beauty:1,power:0},
-  truss: {name:'Traversenbrücke',cost:220,party:0,beauty:1,power:0},
-  motorTruss: {name:'Motortraverse',cost:680,party:4,beauty:3,power:1.2},
+  truss: {name:'Traversensystem',cost:110,party:0,beauty:1,power:0},
   fireworks: {name:'Feuerwerksmodul',cost:850,party:12,beauty:6,power:.4},
   sparks: {name:'Funkenfontäne',cost:390,party:6,beauty:3,power:.5},
   spot: {name:'Moving Head',cost:180,party:5,beauty:2,power:.4},
@@ -18,8 +17,17 @@ export const BRANDS = {
   touring: {name:'Mahrten & Söhne · Touring',cost:1.7,quality:1.2},
   premium: {name:'El-Akustisch · Prestige',cost:2.8,quality:1.7},
 } as const
+export const TRUSS_BRANDS = {
+  budget: {name:'AluTraverse',cost:1,quality:.8},
+  touring: {name:'Worldwide Truss',cost:1.6,quality:1.15},
+  premium: {name:'Prolight',cost:2.3,quality:1.55},
+} as const
+export function brandsFor(kind:ComponentKind){return kind==='truss'?TRUSS_BRANDS:BRANDS}
 export type ComponentKind = keyof typeof COMPONENTS
-export type StagePart = {stackOn?:string|null;id:string;kind:ComponentKind;brand:keyof typeof BRANDS;x:number;z:number;rotation:number;mount:string|null;color:string}
+export const UNMOUNTABLE_KINDS:ComponentKind[]=['deck','truss','palm','fog','fireworks','sparks']
+export type MountFace='under'|'over'|'sideA'|'sideB'|'end'
+export const MOUNT_FACES:MountFace[]=['under','over','sideA','sideB','end']
+export type StagePart = {stackOn?:string|null;id:string;kind:ComponentKind;brand:keyof typeof BRANDS;x:number;z:number;rotation:number;mount:string|null;color:string;orientation?:'horizontal'|'vertical';mountFace?:MountFace}
 export type ShowPhase = {movement?:number;pyro?:number;intensity:number;speed:number;fog:number;volume:number;color:string}
 export type StageDesign = {audience?:Array<{x:number;z:number}>;tileWidth?:number;tileDepth?:number;name:string;width:number;depth:number;parts:StagePart[];linked:boolean;phases:[ShowPhase,ShowPhase,ShowPhase]}
 export const PHASE_NAMES = ['Warm-up','Main','Finale'] as const
@@ -36,7 +44,7 @@ export function defaultStageDesign():StageDesign {
 }
 export function stageStats(d:StageDesign) {
   let cost=d.width*d.depth*12 + ((d.tileWidth??1)*(d.tileDepth??1)-1)*180,party=0,beauty=0,power=0,speakers=0
-  for(const p of d.parts){const c=COMPONENTS[p.kind],b=BRANDS[p.brand];cost+=c.cost*b.cost;party+=c.party*b.quality;beauty+=c.beauty*b.quality;power+=c.power;if(p.kind==='speaker')speakers++}
+  for(const p of d.parts){const c=COMPONENTS[p.kind],b=brandsFor(p.kind)[p.brand];cost+=c.cost*b.cost;party+=c.party*b.quality;beauty+=c.beauty*b.quality;power+=c.power;if(p.kind==='speaker')speakers++}
   return {cost:Math.round(cost),upkeep:Math.round(cost*.008*10)/10,party:Math.min(100,Math.round(party)),beauty:Math.min(100,Math.round(beauty)),power:Math.round(power*10)/10,speakers}
 }
 export function stageDesignIssue(d:StageDesign):string|null {
@@ -53,24 +61,21 @@ export function stageDesignIssue(d:StageDesign):string|null {
   if(reachable.size!==audience.length)return 'Jede Zuschauerfläche braucht einen durchgehenden Zugang zum äußeren Rand'
   const ids=new Set<string>()
   for(const p of d.parts){
-    if(!p||typeof p.id!=='string'||p.id.length>80||ids.has(p.id)||!Object.hasOwn(COMPONENTS,p.kind)||!Object.hasOwn(BRANDS,p.brand)||![p.x,p.z,p.rotation].every(Number.isInteger)||p.x<0||p.x>=d.width||p.z<0||p.z>=d.depth||p.rotation<0||p.rotation>3||!/^#[0-9a-f]{6}$/i.test(p.color))return 'Ungültiges Bühnenelement'
-    if(isTruss(p.kind)&&(p.rotation%2===0 ? p.x<1||p.x>=d.width-1 : p.z<1||p.z>=d.depth-1))return 'Traversen brauchen seitlich je einen Rasterplatz Abstand zum Rand'
+    if(!p||typeof p.id!=='string'||p.id.length>80||ids.has(p.id)||!Object.hasOwn(COMPONENTS,p.kind)||!Object.hasOwn(brandsFor(p.kind),p.brand)||![p.x,p.z,p.rotation].every(Number.isInteger)||p.x<0||p.x>=d.width||p.z<0||p.z>=d.depth||p.rotation<0||p.rotation>3||!/^#[0-9a-f]{6}$/i.test(p.color)||(p.mountFace!==undefined&&!MOUNT_FACES.includes(p.mountFace)))return 'Ungültiges Bühnenelement'
     ids.add(p.id)
     if(p.stackOn){
-      if(p.kind!=='speaker'||p.mount)return 'Nur Bodenlautsprecher können gestapelt werden'
+      const stackable=p.kind==='speaker'||p.kind==='truss'
+      if(!stackable||p.mount)return 'Nur Lautsprecher oder Traversensegmente können gestapelt werden'
+      const maxLevel=p.kind==='truss'?8:3
       const seen=new Set([p.id]);let support=d.parts.find(q=>q?.id===p.stackOn),level=0
-      while(support){if(seen.has(support.id)||support.kind!=='speaker'||support.mount||support.x!==p.x||support.z!==p.z||++level>3)return 'Lautsprecher benötigen einen stabilen Stapel mit höchstens vier Boxen';seen.add(support.id);if(!support.stackOn)break;support=d.parts.find(q=>q?.id===support!.stackOn)}
-      if(!support)return 'Unterer Lautsprecher fehlt'
-      if(d.parts.some(q=>q!==p&&q.stackOn===p.stackOn))return 'Auf dieser Box steht bereits ein Lautsprecher'
+      while(support){if(seen.has(support.id)||support.kind!==p.kind||support.mount||support.x!==p.x||support.z!==p.z||++level>maxLevel)return p.kind==='truss'?'Traversentürme unterstützen höchstens neun Segmente':'Lautsprecher benötigen einen stabilen Stapel mit höchstens vier Boxen';seen.add(support.id);if(!support.stackOn)break;support=d.parts.find(q=>q?.id===support!.stackOn)}
+      if(!support)return p.kind==='truss'?'Unteres Traversensegment fehlt':'Unterer Lautsprecher fehlt'
+      if(d.parts.some(q=>q!==p&&q.stackOn===p.stackOn))return p.kind==='truss'?'An diesem Segment ist bereits etwas befestigt':'Auf dieser Box steht bereits ein Lautsprecher'
     }
-    if(!p.mount&&!isTruss(p.kind)&&d.parts.some(t=>t.kind==='motorTruss'&&(t.rotation%2===0?p.z===t.z&&Math.abs(p.x-t.x)<=1:p.x===t.x&&Math.abs(p.z-t.z)<=1)))return 'Der Fahrbereich einer Motortraverse muss am Boden frei bleiben'
     if(p.kind==='speaker'&&partHeight(d,p)+.8>2.75&&d.parts.some(q=>q.mount&&q.x===p.x&&q.z===p.z))return 'Lautsprecherstapel stößt an hängende Technik'
     if(!p.mount&&partOnAudience(d,p))return 'Zuschauerflächen bleiben frei von Bodenaufbauten'
-    if(isTruss(p.kind)){
-      for(const offset of [-.9,.9]){const leg={x:p.x+(p.rotation%2?0:offset),z:p.z+(p.rotation%2?offset:0)};if(partOnAudience(d,leg))return 'Traversenstützen dürfen nicht im Zuschauerbereich stehen'}
-    }
-    if(p.mount!==null){const truss=d.parts.find(t=>t?.id===p.mount&&isTruss(t.kind)&&t.mount===null);if(!truss||['truss','motorTruss','deck','palm','fog','fireworks','sparks'].includes(p.kind)||(truss.rotation%2===0 ? p.z!==truss.z||Math.abs(p.x-truss.x)>1 : p.x!==truss.x||Math.abs(p.z-truss.z)>1))return 'Hängende Elemente brauchen eine passende Traverse direkt darüber'}
-    if(d.parts.some(q=>q!==p&&q.x===p.x&&q.z===p.z&&q.mount===p.mount&&(q.stackOn??null)===(p.stackOn??null)))return 'Dieser Montageplatz ist bereits belegt'
+    if(p.mount!==null){const truss=d.parts.find(t=>t?.id===p.mount&&isTruss(t.kind)&&t.mount===null);if(!truss||UNMOUNTABLE_KINDS.includes(p.kind)||p.x!==truss.x||p.z!==truss.z)return 'Hängende Elemente brauchen eine passende Traverse direkt darüber'}
+    if(d.parts.some(q=>q!==p&&q.x===p.x&&q.z===p.z&&q.mount===p.mount&&(q.stackOn??null)===(p.stackOn??null)&&(q.mountFace??'under')===(p.mountFace??'under')))return 'Dieser Montageplatz ist bereits belegt'
   }
   if(!Array.isArray(d.phases)||d.phases.length!==3||d.phases.some(p=>!p||![p.intensity,p.speed,p.fog,p.volume,p.movement??0,p.pyro??0].every(n=>Number.isFinite(n)&&n>=0&&n<=100)||!/^#[0-9a-f]{6}$/i.test(p.color)))return 'Ungültige Showregler'
   return null
@@ -101,9 +106,9 @@ export function partOnAudience(d:StageDesign,p:{x:number;z:number}):boolean {
   return !!d.audience?.some(c=>c.x===x&&c.z===z)
 }
 export function partHeight(d:StageDesign,p:StagePart):number {
-  if(p.mount)return 2.8
+  if(p.mount){const truss=d.parts.find(q=>q.id===p.mount);return truss?partHeight(d,truss):2.8}
   let height=.3,parent=p.stackOn,count=0
-  while(parent&&count++<3){const support=d.parts.find(q=>q.id===parent);if(!support)break;height+=.8;parent=support.stackOn}
+  while(parent&&count++<10){const support=d.parts.find(q=>q.id===parent);if(!support)break;height+=support.kind==='truss'?(support.orientation==='vertical'?3:.3):.8;parent=support.stackOn}
   return height
 }
 export function stageAudienceCells(b:{x:number;z:number;rotation:number;stageDesign?:StageDesign}){
@@ -121,5 +126,34 @@ export function removeStagePart(d:StageDesign,id:string):StageDesign {
   next.parts=next.parts.filter(p=>!removed.has(p.id));return next
 }
 
-export function isTruss(kind:string){return kind==='truss'||kind==='motorTruss'}
+export function isTruss(kind:string){return kind==='truss'}
 export function stageMotion(phase:ShowPhase,time:number){return (phase.movement??0)/100*.9*(1+Math.sin(time*(.2+phase.speed/80)))}
+export function mountOffset(truss:StagePart,face:MountFace|undefined):{dx:number;dy:number;dz:number}{
+  const vertical=truss.orientation==='vertical',f=face??'under'
+  if(f==='end')return vertical?{dx:0,dy:1.6,dz:0}:{dx:.55,dy:0,dz:0}
+  if(vertical){
+    if(f==='under')return{dx:-.3,dy:.9,dz:0}
+    if(f==='over')return{dx:.3,dy:.9,dz:0}
+    if(f==='sideA')return{dx:0,dy:.9,dz:-.3}
+    return{dx:0,dy:.9,dz:.3}
+  }
+  if(f==='under')return{dx:0,dy:-.35,dz:0}
+  if(f==='over')return{dx:0,dy:.35,dz:0}
+  if(f==='sideA')return{dx:0,dy:0,dz:-.3}
+  return{dx:0,dy:0,dz:.3}
+}
+export function mountDirection(truss:StagePart|undefined,face:MountFace|undefined):{x:number;y:number;z:number}{
+  if(!truss)return{x:0,y:1,z:0}
+  const vertical=truss.orientation==='vertical',f=face??'under'
+  if(f==='end')return vertical?{x:0,y:1,z:0}:{x:1,y:0,z:0}
+  if(vertical){
+    if(f==='under')return{x:-1,y:0,z:0}
+    if(f==='over')return{x:1,y:0,z:0}
+    if(f==='sideA')return{x:0,y:0,z:-1}
+    return{x:0,y:0,z:1}
+  }
+  if(f==='under')return{x:0,y:-1,z:0}
+  if(f==='over')return{x:0,y:1,z:0}
+  if(f==='sideA')return{x:0,y:0,z:-1}
+  return{x:0,y:0,z:1}
+}

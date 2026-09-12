@@ -16,7 +16,7 @@ export function bandPositions(d?:StageDesign){
   const cells:Array<{x:number;z:number}>=[]
   for(let z=d.depth-1;z>=0;z--)for(let x=0;x<d.width;x++){
     if(partOnAudience(d,{x,z})||!d.parts.some(p=>p.kind==='deck'&&!p.mount&&p.x===x&&p.z===z))continue
-    if(d.parts.some(p=>!p.mount&&p.kind!=='deck'&&(p.kind==='truss'||p.kind==='motorTruss'?(p.rotation%2===0?z===p.z&&Math.abs(x-p.x)<=1:x===p.x&&Math.abs(z-p.z)<=1):p.x===x&&p.z===z)))continue
+    if(d.parts.some(p=>!p.mount&&p.kind!=='deck'&&p.x===x&&p.z===z))continue
     cells.push({x:x-d.width/2+.5,z:z-d.depth/2+.5})
   }
   // Prefer central, forward positions and spread the players across placed stage decks.
